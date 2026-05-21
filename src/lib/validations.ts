@@ -75,9 +75,43 @@ export const updateProfileSchema = z
     }
   );
 
+export const createDepartmentSchema = z.object({
+  name: z.string().min(1, "Department name is required").max(100),
+  description: z.string().max(500).optional(),
+});
+
+export const updateDepartmentSchema = z.object({
+  name: z.string().min(1, "Department name is required").max(100).optional(),
+  description: z.string().max(500).optional(),
+});
+
+export const inviteUserSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  role: z.enum(["manager", "staff"]),
+  departmentId: z.string().optional(),
+});
+
+export const updateUserRoleSchema = z.object({
+  role: z.enum(["company_admin", "manager", "staff"]),
+  departmentIds: z.array(z.string()).optional(),
+});
+
+export const updateOrganizationSchema = z.object({
+  name: z.string().min(1, "Organization name is required").max(100).optional(),
+  industry: z.string().max(100).optional(),
+  description: z.string().max(500).optional(),
+  logo: z.string().url("Invalid URL").optional().or(z.literal("")),
+  address: z.string().max(500).optional(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
+export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
+export type InviteUserInput = z.infer<typeof inviteUserSchema>;
+export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;

@@ -1,0 +1,75 @@
+/**
+ * Departments API Endpoint (Boundary Layer)
+ * POST /api/organizations/[orgId]/departments — Create department
+ * GET /api/organizations/[orgId]/departments — List departments
+ * 
+ * Requires authentication. Create requires Company Admin role.
+ * List is accessible to all org members.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { DepartmentService } from "@/services/department.service";
+import { createDepartmentSchema } from "@/lib/validations";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { MembershipRepository } from "@/repositories/membership.repository";
+
+const deptService = new DepartmentService();
+const membershipRepo = new MembershipRepository();
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    // Only Company Admin can create departments
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership || membership.role !== "company_admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const parsed = createDepartmentSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const dept = await deptService.create(parsed.data, orgId);
+    return NextResponse.json(dept, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Department name already exists") {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    // Any org member can view departments
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const depts = await deptService.getByOrganization(orgId);
+    return NextResponse.json(depts);
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

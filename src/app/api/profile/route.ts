@@ -6,24 +6,14 @@
  * Both endpoints require authentication.
  * Password change requires current password verification.
  * 
- * NOTE: This route currently imports UserRepository directly,
- * which violates BCE (Boundary → Entity). This will be refactored
- * to use a ProfileService in a future update.
- * 
- * Returns:
- * - 200: Profile data (GET) or updated profile (PATCH)
- * - 400: Validation failed or incorrect current password
- * - 401: Unauthorized
- * - 500: Internal server error
+ * BCE compliant: Route → ProfileService → UserRepository
  */
 import { NextRequest, NextResponse } from "next/server";
-import { UserRepository } from "@/repositories/user.repository";
+import { ProfileService } from "@/services/profile.service";
 import { updateProfileSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
-import bcrypt from "bcryptjs";
 
-// TODO: Replace with ProfileService to fix BCE violation
-const userRepo = new UserRepository();
+const profileService = new ProfileService();
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -40,39 +30,17 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const updateData: { name?: string; hashedPassword?: string } = {};
-
-    if (parsed.data.name) {
-      updateData.name = parsed.data.name;
-    }
-
-    // Password change requires verifying current password first
-    if (parsed.data.newPassword && parsed.data.currentPassword) {
-      const user = await userRepo.findById(sessionUser.id);
-      if (!user) return unauthorizedResponse();
-
-      const isValid = await bcrypt.compare(
-        parsed.data.currentPassword,
-        user.hashedPassword
-      );
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Current password is incorrect" },
-          { status: 400 }
-        );
-      }
-
-      updateData.hashedPassword = await bcrypt.hash(parsed.data.newPassword, 12);
-    }
-
-    const updated = await userRepo.updateProfile(sessionUser.id, updateData);
-
-    return NextResponse.json({
-      id: updated.id,
-      name: updated.name,
-      email: updated.email,
+    const updated = await profileService.updateProfile(sessionUser.id, {
+      name: parsed.data.name,
+      currentPassword: parsed.data.currentPassword,
+      newPassword: parsed.data.newPassword,
     });
-  } catch {
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Current password is incorrect") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -82,18 +50,10 @@ export async function GET() {
     const sessionUser = await getAuthenticatedUser();
     if (!sessionUser) return unauthorizedResponse();
 
-    const user = await userRepo.findById(sessionUser.id);
-    if (!user) return unauthorizedResponse();
+    const profile = await profileService.getProfile(sessionUser.id);
+    if (!profile) return unauthorizedResponse();
 
-    // Return safe user data — never expose hashedPassword
-    return NextResponse.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      emailVerified: user.emailVerified,
-      image: user.image,
-      createdAt: user.createdAt,
-    });
+    return NextResponse.json(profile);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

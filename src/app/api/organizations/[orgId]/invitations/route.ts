@@ -1,0 +1,84 @@
+/**
+ * Invitations API Endpoint (Boundary Layer)
+ * POST /api/organizations/[orgId]/invitations — Send invitation
+ * GET /api/organizations/[orgId]/invitations — List invitations
+ * 
+ * Requires authentication and Company Admin role.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { UserManagementService } from "@/services/user-management.service";
+import { inviteUserSchema } from "@/lib/validations";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { MembershipRepository } from "@/repositories/membership.repository";
+import { InvitationRepository } from "@/repositories/invitation.repository";
+
+const userMgmtService = new UserManagementService();
+const membershipRepo = new MembershipRepository();
+const invitationRepo = new InvitationRepository();
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    // Only Company Admin can invite users
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership || membership.role !== "company_admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const parsed = inviteUserSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const invitation = await userMgmtService.inviteUser(
+      parsed.data,
+      orgId,
+      user.id
+    );
+    return NextResponse.json(invitation, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (
+        error.message === "User is already a member of this organization" ||
+        error.message === "An invitation has already been sent to this email"
+      ) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership || membership.role !== "company_admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const invitations = await invitationRepo.findByOrgId(orgId);
+    return NextResponse.json(invitations);
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

@@ -87,7 +87,7 @@ export class UserManagementService {
 
   /**
    * Updates a member's role and optionally their department assignments.
-   * Supports promoting staff to manager, assigning managers to departments, etc.
+   * Prevents the last company_admin from being demoted.
    */
   async updateMemberRole(
     userId: string,
@@ -100,6 +100,20 @@ export class UserManagementService {
     );
     if (!membership) {
       throw new Error("Membership not found");
+    }
+
+    // Prevent demoting the last company_admin
+    if (membership.role === "company_admin" && input.role !== "company_admin") {
+      const allMembers = await this.membershipRepo.findByOrgId(organizationId);
+      const adminCount = allMembers.filter(
+        (m) => m.role === "company_admin" && m.status === "active"
+      ).length;
+
+      if (adminCount <= 1) {
+        throw new Error(
+          "Cannot demote the last Company Admin. Promote another member first."
+        );
+      }
     }
 
     // Update the role

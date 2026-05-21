@@ -176,6 +176,39 @@ describe("UserManagementService", () => {
         })
       ).rejects.toThrow("Membership not found");
     });
+
+    it("throws when demoting the last company_admin", async () => {
+      await expect(
+        userMgmtService.updateMemberRole(adminUserId, orgId, {
+          role: "staff",
+        })
+      ).rejects.toThrow("Cannot demote the last Company Admin");
+    });
+
+    it("allows demoting a company_admin when another exists", async () => {
+      // Create a second admin
+      const user2 = await userRepo.create({
+        name: "Second Admin",
+        email: "admin2@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "company_admin",
+          status: "active",
+        },
+      });
+
+      // Now demoting the first admin should work
+      const updated = await userMgmtService.updateMemberRole(
+        adminUserId,
+        orgId,
+        { role: "manager" }
+      );
+      expect(updated.role).toBe("manager");
+    });
   });
 
   describe("toggleMemberStatus", () => {

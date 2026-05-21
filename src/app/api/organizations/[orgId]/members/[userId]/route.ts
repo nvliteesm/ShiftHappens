@@ -46,8 +46,13 @@ export async function PATCH(
     );
     return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Error && error.message === "Membership not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Membership not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.includes("Cannot demote")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

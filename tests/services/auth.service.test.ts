@@ -1,3 +1,9 @@
+/**
+ * Tests for Auth Service (Control Layer)
+ * Verifies registration, email verification, password reset,
+ * and credential validation. EmailService is mocked to avoid
+ * external API calls during testing.
+ */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuthService } from "@/services/auth.service";
 import { prisma } from "@/lib/prisma";

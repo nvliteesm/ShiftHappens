@@ -1,3 +1,10 @@
+/**
+ * Forgot Password Form Component (Boundary Layer)
+ * 
+ * Two-state form: input state shows email field, submitted state
+ * shows a confirmation message. Always shows success regardless
+ * of whether the email exists (prevents email enumeration).
+ */
 "use client";
 
 import { useState } from "react";
@@ -34,6 +41,7 @@ export function ForgotPasswordForm() {
     setLoading(false);
   }
 
+  // After submission, show confirmation regardless of email existence
   if (submitted) {
     return (
       <Card>

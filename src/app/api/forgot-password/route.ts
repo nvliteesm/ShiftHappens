@@ -1,3 +1,16 @@
+/**
+ * Forgot Password API Endpoint (Boundary Layer)
+ * POST /api/forgot-password
+ * 
+ * Initiates password reset by sending a reset link via email.
+ * Always returns success even if email doesn't exist — this
+ * prevents email enumeration attacks (security best practice).
+ * 
+ * Returns:
+ * - 200: Reset email sent (or silently ignored for non-existent email)
+ * - 400: Validation failed
+ * - 500: Internal server error
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@/services/auth.service";
 import { forgotPasswordSchema } from "@/lib/validations";
@@ -18,6 +31,7 @@ export async function POST(request: NextRequest) {
 
     await authService.requestPasswordReset(parsed.data.email);
 
+    // Intentionally vague message to prevent email enumeration
     return NextResponse.json({
       message: "If an account exists with this email, a password reset link has been sent.",
     });

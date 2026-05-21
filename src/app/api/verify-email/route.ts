@@ -1,3 +1,15 @@
+/**
+ * Email Verification API Endpoint (Boundary Layer)
+ * POST /api/verify-email
+ * 
+ * Verifies a user's email address using a token sent via email.
+ * Called when user clicks the verification link.
+ * 
+ * Returns:
+ * - 200: Email verified successfully
+ * - 400: Missing token or invalid/expired token
+ * - 500: Internal server error
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@/services/auth.service";
 

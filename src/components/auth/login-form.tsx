@@ -1,3 +1,11 @@
+/**
+ * Login Form Component (Boundary Layer)
+ * 
+ * Client-side login form using NextAuth's signIn function.
+ * Uses the Credentials provider with redirect: false to handle
+ * errors in-page rather than redirecting to an error page.
+ * On success, redirects to /dashboard.
+ */
 "use client";
 
 import { useState } from "react";

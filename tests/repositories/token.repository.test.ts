@@ -1,3 +1,8 @@
+/**
+ * Tests for Token Repository (Entity Layer)
+ * Verifies creation, lookup, and deletion of verification
+ * and password reset tokens against a real PostgreSQL database.
+ */
 import { describe, it, expect, beforeEach } from "vitest";
 import { TokenRepository } from "@/repositories/token.repository";
 import { prisma } from "@/lib/prisma";

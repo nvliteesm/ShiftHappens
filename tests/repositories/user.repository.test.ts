@@ -1,3 +1,8 @@
+/**
+ * Tests for User Repository (Entity Layer)
+ * Verifies CRUD operations against a real PostgreSQL database.
+ * Each test starts with a clean database via beforeEach cleanup.
+ */
 import { describe, it, expect, beforeEach } from "vitest";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";

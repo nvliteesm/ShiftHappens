@@ -1,3 +1,12 @@
+/**
+ * Onboarding Page (Boundary Layer)
+ * 
+ * Shown to newly registered users who don't have an organization yet.
+ * Allows them to create their first organization, which makes them
+ * the company_admin of that org.
+ * 
+ * After successful creation, redirects to the dashboard.
+ */
 "use client";
 
 import { useState } from "react";

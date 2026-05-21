@@ -1,3 +1,15 @@
+/**
+ * Reset Password API Endpoint (Boundary Layer)
+ * POST /api/reset-password
+ * 
+ * Completes password reset using a valid token and new password.
+ * Called when user submits the reset password form.
+ * 
+ * Returns:
+ * - 200: Password reset successfully
+ * - 400: Validation failed or invalid/expired token
+ * - 500: Internal server error
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@/services/auth.service";
 import { resetPasswordSchema } from "@/lib/validations";

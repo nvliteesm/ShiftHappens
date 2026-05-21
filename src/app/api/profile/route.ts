@@ -1,9 +1,28 @@
+/**
+ * Profile API Endpoint (Boundary Layer)
+ * PATCH /api/profile — Update user profile (name and/or password)
+ * GET /api/profile — Get current user's profile
+ * 
+ * Both endpoints require authentication.
+ * Password change requires current password verification.
+ * 
+ * NOTE: This route currently imports UserRepository directly,
+ * which violates BCE (Boundary → Entity). This will be refactored
+ * to use a ProfileService in a future update.
+ * 
+ * Returns:
+ * - 200: Profile data (GET) or updated profile (PATCH)
+ * - 400: Validation failed or incorrect current password
+ * - 401: Unauthorized
+ * - 500: Internal server error
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { UserRepository } from "@/repositories/user.repository";
 import { updateProfileSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import bcrypt from "bcryptjs";
 
+// TODO: Replace with ProfileService to fix BCE violation
 const userRepo = new UserRepository();
 
 export async function PATCH(request: NextRequest) {
@@ -27,6 +46,7 @@ export async function PATCH(request: NextRequest) {
       updateData.name = parsed.data.name;
     }
 
+    // Password change requires verifying current password first
     if (parsed.data.newPassword && parsed.data.currentPassword) {
       const user = await userRepo.findById(sessionUser.id);
       if (!user) return unauthorizedResponse();
@@ -65,6 +85,7 @@ export async function GET() {
     const user = await userRepo.findById(sessionUser.id);
     if (!user) return unauthorizedResponse();
 
+    // Return safe user data — never expose hashedPassword
     return NextResponse.json({
       id: user.id,
       name: user.name,

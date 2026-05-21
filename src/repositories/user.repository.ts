@@ -1,6 +1,16 @@
+/**
+ * User Repository (Entity Layer)
+ * 
+ * Data access layer for User model operations.
+ * All database queries are encapsulated here — the Control layer
+ * (services) calls these methods rather than using Prisma directly.
+ * 
+ * Security: Prisma parameterized queries prevent SQL injection.
+ */
 import { prisma } from "@/lib/prisma";
 
 export class UserRepository {
+  /** Creates a new user with hashed password */
   async create(data: {
     name: string;
     email: string;
@@ -15,14 +25,17 @@ export class UserRepository {
     });
   }
 
+  /** Finds a user by email — used for login and duplicate checking */
   async findByEmail(email: string) {
     return prisma.user.findUnique({ where: { email } });
   }
 
+  /** Finds a user by ID — used for session-based lookups */
   async findById(id: string) {
     return prisma.user.findUnique({ where: { id } });
   }
 
+  /** Updates user profile fields (name and/or password) */
   async updateProfile(
     id: string,
     data: { name?: string; hashedPassword?: string }
@@ -33,6 +46,7 @@ export class UserRepository {
     });
   }
 
+  /** Sets the emailVerified timestamp — called after token verification */
   async verifyEmail(id: string) {
     return prisma.user.update({
       where: { id },

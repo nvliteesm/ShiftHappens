@@ -1,3 +1,8 @@
+/**
+ * Tests for Organization Repository (Entity Layer)
+ * Verifies org creation with membership, slug lookups,
+ * and user-org queries against a real PostgreSQL database.
+ */
 import { describe, it, expect, beforeEach } from "vitest";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";

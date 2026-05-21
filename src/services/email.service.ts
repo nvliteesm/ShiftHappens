@@ -1,3 +1,12 @@
+/**
+ * Email Service (Control Layer)
+ * 
+ * Handles transactional email delivery via the Resend API.
+ * Sends verification and password reset emails with tokenized links.
+ * 
+ * In development, emails may fail silently if RESEND_API_KEY is not set.
+ * The AuthService mocks this in tests to avoid external API calls.
+ */
 import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -5,6 +14,7 @@ const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@example.com";
 const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
 export class EmailService {
+  /** Sends an email verification link (token expires in 24 hours) */
   async sendVerificationEmail(email: string, token: string) {
     const verifyUrl = `${baseUrl}/verify-email?token=${token}`;
 
@@ -22,6 +32,7 @@ export class EmailService {
     });
   }
 
+  /** Sends a password reset link (token expires in 1 hour) */
   async sendPasswordResetEmail(email: string, token: string) {
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 

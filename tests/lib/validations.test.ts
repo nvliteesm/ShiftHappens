@@ -1,3 +1,8 @@
+/**
+ * Tests for Zod Validation Schemas
+ * Covers all input validation rules for auth, org, department,
+ * invitation, and user management endpoints.
+ */
 import { describe, it, expect } from "vitest";
 import {
   registerSchema,

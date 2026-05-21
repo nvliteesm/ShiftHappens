@@ -1,3 +1,13 @@
+/**
+ * App Sidebar Component (Boundary Layer)
+ * 
+ * Persistent sidebar navigation for authenticated pages.
+ * Displays navigation links, user info, and sign out button.
+ * Highlights the active route for visual feedback.
+ * 
+ * More navigation items will be added as features are built
+ * in subsequent phases (departments, tasks, reports, etc.).
+ */
 "use client";
 
 import Link from "next/link";
@@ -40,6 +50,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
           </Link>
         ))}
       </nav>
+      {/* User info and sign out at the bottom of the sidebar */}
       <div className="border-t pt-4">
         <p className="text-sm font-medium">{user.name}</p>
         <p className="text-xs text-muted-foreground">{user.email}</p>

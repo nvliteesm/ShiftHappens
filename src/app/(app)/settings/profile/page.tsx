@@ -1,3 +1,10 @@
+/**
+ * Profile Settings Page (Boundary Layer)
+ * 
+ * Allows authenticated users to update their name and password.
+ * Email is displayed but cannot be changed (read-only).
+ * Password change requires entering the current password first.
+ */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -25,6 +32,7 @@ export default function ProfilePage() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Fetch profile data on page load
   useEffect(() => {
     fetch("/api/profile")
       .then((res) => res.json())
@@ -41,6 +49,7 @@ export default function ProfilePage() {
       name: formData.get("name") as string,
     };
 
+    // Only include password fields if user is changing their password
     const currentPassword = formData.get("currentPassword") as string;
     const newPassword = formData.get("newPassword") as string;
     const confirmNewPassword = formData.get("confirmNewPassword") as string;

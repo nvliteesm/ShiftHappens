@@ -1,3 +1,10 @@
+/**
+ * Prisma Client Singleton
+ * 
+ * Creates a single PrismaClient instance shared across the application.
+ * In development, stores the instance on globalThis to prevent multiple
+ * connections during hot reloading (Next.js re-imports modules on each reload).
+ */
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {

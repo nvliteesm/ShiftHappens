@@ -1,3 +1,10 @@
+/**
+ * Root Page (Boundary Layer)
+ * 
+ * Entry point of the application. Redirects based on auth state:
+ * - Authenticated users → /dashboard
+ * - Unauthenticated users → /login
+ */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 

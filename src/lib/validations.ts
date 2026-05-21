@@ -1,5 +1,22 @@
+/**
+ * Zod Validation Schemas (Boundary Layer)
+ * 
+ * Input validation and sanitization for all API endpoints.
+ * These schemas enforce data integrity at the Boundary layer
+ * before data reaches the Control (service) layer.
+ * 
+ * Security: Prevents malformed input from reaching business logic.
+ */
 import { z } from "zod";
 
+/**
+ * Reusable password schema enforcing strong password policy:
+ * - Minimum 8 characters
+ * - At least one uppercase letter
+ * - At least one lowercase letter
+ * - At least one number
+ * - At least one special character
+ */
 const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
@@ -8,6 +25,11 @@ const passwordSchema = z
   .regex(/[0-9]/, "Password must contain at least one number")
   .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character");
 
+// ============================================================
+// Phase 1: Authentication & Organization Schemas
+// ============================================================
+
+/** Validates new user registration with password confirmation */
 export const registerSchema = z
   .object({
     name: z.string().min(1, "Name is required").max(100),
@@ -20,15 +42,18 @@ export const registerSchema = z
     path: ["confirmPassword"],
   });
 
+/** Validates login credentials */
 export const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
   password: z.string().min(1, "Password is required"),
 });
 
+/** Validates forgot password request */
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
 });
 
+/** Validates password reset with token and password confirmation */
 export const resetPasswordSchema = z
   .object({
     token: z.string().min(1, "Token is required"),
@@ -40,12 +65,18 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
+/** Validates new organization creation */
 export const createOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").max(100),
   industry: z.string().max(100).optional(),
   description: z.string().max(500).optional(),
 });
 
+/** 
+ * Validates profile updates.
+ * Password change requires current password for verification.
+ * New password must match confirmation.
+ */
 export const updateProfileSchema = z
   .object({
     name: z.string().min(1, "Name is required").max(100).optional(),
@@ -75,27 +106,48 @@ export const updateProfileSchema = z
     }
   );
 
+// ============================================================
+// Phase 2: Department, Invitation & User Management Schemas
+// ============================================================
+
+/** Validates new department creation within an organization */
 export const createDepartmentSchema = z.object({
   name: z.string().min(1, "Department name is required").max(100),
   description: z.string().max(500).optional(),
 });
 
+/** Validates department updates — all fields optional for partial updates */
 export const updateDepartmentSchema = z.object({
   name: z.string().min(1, "Department name is required").max(100).optional(),
   description: z.string().max(500).optional(),
 });
 
+/** 
+ * Validates user invitation by Company Admin.
+ * Only manager and staff roles can be invited — company_admin is 
+ * assigned only during org creation (self-registration).
+ * Department assignment is optional at invitation time.
+ */
 export const inviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
   role: z.enum(["manager", "staff"]),
   departmentId: z.string().optional(),
 });
 
+/**
+ * Validates user role updates by Company Admin.
+ * Supports reassigning to any role including company_admin.
+ * departmentIds allows assigning managers to multiple departments.
+ */
 export const updateUserRoleSchema = z.object({
   role: z.enum(["company_admin", "manager", "staff"]),
   departmentIds: z.array(z.string()).optional(),
 });
 
+/** 
+ * Validates organization profile updates by Company Admin.
+ * Logo is a URL field (file upload deferred to Phase 8).
+ */
 export const updateOrganizationSchema = z.object({
   name: z.string().min(1, "Organization name is required").max(100).optional(),
   industry: z.string().max(100).optional(),
@@ -104,6 +156,9 @@ export const updateOrganizationSchema = z.object({
   address: z.string().max(500).optional(),
 });
 
+// ============================================================
+// Type Exports — inferred from schemas for type-safe usage
+// ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;

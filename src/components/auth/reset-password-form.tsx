@@ -1,3 +1,14 @@
+/**
+ * Reset Password Form Component (Boundary Layer)
+ * 
+ * Allows users to set a new password using a valid reset token
+ * from the URL query string. Shows an error if no token is present.
+ * On success, redirects to /login.
+ * 
+ * Wrapped in Suspense because useSearchParams requires it in
+ * Next.js App Router server components.
+ */
+
 "use client";
 
 import { useState, Suspense } from "react";
@@ -21,6 +32,7 @@ function ResetPasswordContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // No token in URL — show invalid link message
   if (!token) {
     return (
       <Card>

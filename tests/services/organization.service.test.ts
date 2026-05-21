@@ -1,3 +1,8 @@
+/**
+ * Tests for Organization Service (Control Layer)
+ * Verifies org creation with slug generation and
+ * retrieval of user's organizations.
+ */
 import { describe, it, expect, beforeEach } from "vitest";
 import { OrganizationService } from "@/services/organization.service";
 import { UserRepository } from "@/repositories/user.repository";

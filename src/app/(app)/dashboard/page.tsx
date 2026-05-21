@@ -1,3 +1,16 @@
+/**
+ * Dashboard Page (Boundary Layer)
+ * 
+ * Main landing page after login. Displays the user's organizations.
+ * If the user has no organizations, redirects to /onboarding
+ * to create their first one.
+ * 
+ * This page will be enhanced in later phases with:
+ * - Department overview (Phase 2)
+ * - Task activity and status (Phase 4)
+ * - Eligibility alerts (Phase 5)
+ * - Role-specific metrics and charts (Phase 6)
+ */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { OrganizationService } from "@/services/organization.service";
@@ -16,6 +29,7 @@ export default async function DashboardPage() {
   const orgService = new OrganizationService();
   const orgs = await orgService.getUserOrganizations(session.user.id);
 
+  // New users with no organization are directed to create one
   if (orgs.length === 0) {
     redirect("/onboarding");
   }

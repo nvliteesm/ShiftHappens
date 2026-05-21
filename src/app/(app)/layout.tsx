@@ -1,3 +1,10 @@
+/**
+ * App Layout (Boundary Layer)
+ * 
+ * Shared layout for all authenticated pages (dashboard, onboarding,
+ * settings). Includes the sidebar navigation.
+ * Redirects unauthenticated users to /login.
+ */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { AppSidebar } from "@/components/layout/app-sidebar";

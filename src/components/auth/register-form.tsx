@@ -1,3 +1,10 @@
+/**
+ * Register Form Component (Boundary Layer)
+ * 
+ * Client-side registration form with name, email, password,
+ * and confirm password fields. Submits to POST /api/register.
+ * On success, redirects to /verify-email with a confirmation message.
+ */
 "use client";
 
 import { useState } from "react";

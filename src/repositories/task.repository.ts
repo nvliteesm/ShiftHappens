@@ -1,0 +1,186 @@
+/**
+ * Task Repository (Entity Layer)
+ * 
+ * Data access layer for Task model operations.
+ * Supports CRUD, filtering by status/department/priority,
+ * and scheduling conflict detection for assignments.
+ * 
+ * All queries are org-scoped for multi-tenant isolation.
+ * Security: Prisma parameterized queries prevent SQL injection.
+ */
+import { prisma } from "@/lib/prisma";
+
+export class TaskRepository {
+  /** Creates a new task within an organization */
+  async create(data: {
+    title: string;
+    description?: string;
+    organizationId: string;
+    departmentId?: string;
+    requiredHeadcount?: number;
+    priority?: string;
+    scheduledStart?: Date;
+    scheduledEnd?: Date;
+    isRecurring?: boolean;
+    recurringPattern?: string;
+    createdById: string;
+  }) {
+    return prisma.task.create({
+      data: {
+        title: data.title,
+        description: data.description,
+        organizationId: data.organizationId,
+        departmentId: data.departmentId,
+        requiredHeadcount: data.requiredHeadcount ?? 1,
+        priority: data.priority ?? "medium",
+        scheduledStart: data.scheduledStart,
+        scheduledEnd: data.scheduledEnd,
+        isRecurring: data.isRecurring ?? false,
+        recurringPattern: data.recurringPattern,
+        createdById: data.createdById,
+      },
+      include: {
+        assignments: true,
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /** Finds a task by ID with assignments and related data */
+  async findById(id: string) {
+    return prisma.task.findUnique({
+      where: { id },
+      include: {
+        assignments: {
+          include: {
+            membership: {
+              include: {
+                user: { select: { id: true, name: true, email: true } },
+              },
+            },
+            assignedBy: { select: { id: true, name: true } },
+          },
+        },
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Lists tasks for an organization with optional filters.
+   * Supports filtering by status, departmentId, and priority.
+   */
+  async findByOrganizationId(
+    organizationId: string,
+    filters?: {
+      status?: string;
+      departmentId?: string;
+      priority?: string;
+    }
+  ) {
+    return prisma.task.findMany({
+      where: {
+        organizationId,
+        ...(filters?.status && { status: filters.status }),
+        ...(filters?.departmentId && { departmentId: filters.departmentId }),
+        ...(filters?.priority && { priority: filters.priority }),
+      },
+      include: {
+        assignments: {
+          include: {
+            membership: {
+              include: {
+                user: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /** Lists tasks for a specific department (manager view) */
+  async findByDepartmentId(departmentId: string) {
+    return prisma.task.findMany({
+      where: { departmentId },
+      include: {
+        assignments: {
+          include: {
+            membership: {
+              include: {
+                user: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+        createdBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /** Updates a task's fields */
+  async update(
+    id: string,
+    data: {
+      title?: string;
+      description?: string;
+      departmentId?: string;
+      requiredHeadcount?: number;
+      priority?: string;
+      status?: string;
+      scheduledStart?: Date;
+      scheduledEnd?: Date;
+    }
+  ) {
+    return prisma.task.update({
+      where: { id },
+      data,
+      include: {
+        assignments: true,
+        department: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /** Deletes a task — cascade deletes assignments */
+  async delete(id: string) {
+    return prisma.task.delete({ where: { id } });
+  }
+
+  /**
+   * Finds tasks that conflict with a given time range for a specific member.
+   * Used for scheduling conflict detection (US-38).
+   * Only considers active assignments (pending or accepted).
+   * Excludes optional taskId to allow checking conflicts for updates.
+   */
+  async findConflictingTasks(
+    membershipId: string,
+    scheduledStart: Date,
+    scheduledEnd: Date,
+    excludeTaskId?: string
+  ) {
+    return prisma.task.findMany({
+      where: {
+        assignments: {
+          some: {
+            membershipId,
+            status: { in: ["pending", "accepted"] },
+          },
+        },
+        scheduledStart: { lt: scheduledEnd },
+        scheduledEnd: { gt: scheduledStart },
+        ...(excludeTaskId && { id: { not: excludeTaskId } }),
+      },
+      include: {
+        department: { select: { id: true, name: true } },
+      },
+    });
+  }
+}

@@ -3,14 +3,14 @@
  * 
  * Main landing page after login. Shows organization overview
  * including departments, members, and task counts.
- * Redirects to /onboarding if user has no organization.
+ * BCE compliant: all data fetched through services.
  */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { OrganizationService } from "@/services/organization.service";
 import { DepartmentService } from "@/services/department.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
-import { prisma } from "@/lib/prisma";
+import { TaskService } from "@/services/task.service";
 import {
   Card,
   CardContent,
@@ -22,6 +22,7 @@ import {
 const orgService = new OrganizationService();
 const deptService = new DepartmentService();
 const membershipRepo = new MembershipRepository();
+const taskService = new TaskService();
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -37,18 +38,7 @@ export default async function DashboardPage() {
   const departments = await deptService.getByOrganization(org.id);
   const members = await membershipRepo.findByOrgId(org.id);
   const activeMembers = members.filter((m) => m.status === "active");
-
-  // Task counts
-  const taskCounts = await prisma.task.groupBy({
-    by: ["status"],
-    where: { organizationId: org.id },
-    _count: true,
-  });
-
-  const totalTasks = taskCounts.reduce((sum, t) => sum + t._count, 0);
-  const openTasks = taskCounts.find((t) => t.status === "open")?._count || 0;
-  const inProgressTasks = taskCounts.find((t) => t.status === "in_progress")?._count || 0;
-  const completedTasks = taskCounts.find((t) => t.status === "completed")?._count || 0;
+  const taskCounts = await taskService.getTaskCounts(org.id);
 
   return (
     <div>
@@ -57,7 +47,6 @@ export default async function DashboardPage() {
         Role: {org.memberships[0]?.role}
       </p>
 
-      {/* Overview cards */}
       <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardHeader>
@@ -74,30 +63,29 @@ export default async function DashboardPage() {
         <Card>
           <CardHeader>
             <CardDescription>Total tasks</CardDescription>
-            <CardTitle className="text-3xl">{totalTasks}</CardTitle>
+            <CardTitle className="text-3xl">{taskCounts.total}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Open</CardDescription>
-            <CardTitle className="text-3xl">{openTasks}</CardTitle>
+            <CardTitle className="text-3xl">{taskCounts.open}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>In progress</CardDescription>
-            <CardTitle className="text-3xl">{inProgressTasks}</CardTitle>
+            <CardTitle className="text-3xl">{taskCounts.in_progress}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Completed</CardDescription>
-            <CardTitle className="text-3xl">{completedTasks}</CardTitle>
+            <CardTitle className="text-3xl">{taskCounts.completed}</CardTitle>
           </CardHeader>
         </Card>
       </div>
 
-      {/* Departments list */}
       {departments.length > 0 && (
         <div>
           <h3 className="mb-4 text-lg font-semibold">Departments</h3>

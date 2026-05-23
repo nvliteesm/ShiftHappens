@@ -171,4 +171,25 @@ export class TaskService {
   async getStaffTasks(membershipId: string, status?: string) {
     return this.assignmentRepo.findByMembershipId(membershipId, status);
   }
+
+  /** Gets task counts grouped by status for the dashboard */
+  async getTaskCounts(organizationId: string) {
+    const tasks = await this.taskRepo.findByOrganizationId(organizationId);
+
+    const counts = {
+      total: tasks.length,
+      open: 0,
+      in_progress: 0,
+      completed: 0,
+      cancelled: 0,
+    };
+
+    for (const task of tasks) {
+      if (task.status in counts) {
+        counts[task.status as keyof typeof counts]++;
+      }
+    }
+
+    return counts;
+  }
 }

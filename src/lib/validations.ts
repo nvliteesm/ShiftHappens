@@ -195,6 +195,45 @@ export const updateCompanySettingsSchema = z.object({
 });
 
 // ============================================================
+// Phase 4: Task Management & Assignment Schemas
+// ============================================================
+
+/** Validates new task creation */
+export const createTaskSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200),
+  description: z.string().max(2000).optional(),
+  departmentId: z.string().optional(),
+  requiredHeadcount: z.number().int().min(1).max(50).optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  scheduledStart: z.string().datetime().optional(),
+  scheduledEnd: z.string().datetime().optional(),
+  isRecurring: z.boolean().optional(),
+  recurringPattern: z.string().max(200).optional(),
+});
+
+/** Validates task updates — all fields optional for partial updates */
+export const updateTaskSchema = z.object({
+  title: z.string().min(1, "Title is required").max(200).optional(),
+  description: z.string().max(2000).optional(),
+  departmentId: z.string().optional(),
+  requiredHeadcount: z.number().int().min(1).max(50).optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
+  scheduledStart: z.string().datetime().optional(),
+  scheduledEnd: z.string().datetime().optional(),
+});
+
+/** Validates staff assignment to a task */
+export const assignTaskSchema = z.object({
+  membershipIds: z.array(z.string()).min(1, "Select at least one staff member"),
+});
+
+/** Validates task rejection with required reason */
+export const rejectTaskSchema = z.object({
+  rejectionReason: z.string().min(1, "Rejection reason is required").max(500),
+});
+
+// ============================================================
 // Type Exports — inferred from schemas for type-safe usage
 // ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -211,3 +250,7 @@ export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type CreateRoleInput = z.infer<typeof createRoleSchema>;
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;
+export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+export type AssignTaskInput = z.infer<typeof assignTaskSchema>;
+export type RejectTaskInput = z.infer<typeof rejectTaskSchema>;

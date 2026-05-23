@@ -19,6 +19,10 @@ import {
   createRoleSchema,
   updateRoleSchema,
   updateCompanySettingsSchema,
+  createTaskSchema,
+  updateTaskSchema,
+  assignTaskSchema,
+  rejectTaskSchema,
 } from "@/lib/validations";
 
 describe("registerSchema", () => {
@@ -328,6 +332,106 @@ describe("updateCompanySettingsSchema", () => {
   it("rejects break hours above 24", () => {
     const result = updateCompanySettingsSchema.safeParse({
       breakRuleHoursWorked: 25,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createTaskSchema", () => {
+  it("accepts valid task data", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Clean kitchen",
+      description: "Deep clean all surfaces",
+      priority: "high",
+      requiredHeadcount: 2,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty title", () => {
+    const result = createTaskSchema.safeParse({
+      title: "",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts task with scheduling", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Morning prep",
+      scheduledStart: "2026-06-01T08:00:00.000Z",
+      scheduledEnd: "2026-06-01T10:00:00.000Z",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid priority", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Task",
+      priority: "super_urgent",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects headcount above 50", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Task",
+      requiredHeadcount: 51,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("updateTaskSchema", () => {
+  it("accepts partial update", () => {
+    const result = updateTaskSchema.safeParse({
+      title: "Updated title",
+      priority: "urgent",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts status update", () => {
+    const result = updateTaskSchema.safeParse({
+      status: "completed",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid status", () => {
+    const result = updateTaskSchema.safeParse({
+      status: "deleted",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("assignTaskSchema", () => {
+  it("accepts valid assignment", () => {
+    const result = assignTaskSchema.safeParse({
+      membershipIds: ["member-1", "member-2"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty assignment", () => {
+    const result = assignTaskSchema.safeParse({
+      membershipIds: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("rejectTaskSchema", () => {
+  it("accepts valid rejection", () => {
+    const result = rejectTaskSchema.safeParse({
+      rejectionReason: "I have a scheduling conflict",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty reason", () => {
+    const result = rejectTaskSchema.safeParse({
+      rejectionReason: "",
     });
     expect(result.success).toBe(false);
   });

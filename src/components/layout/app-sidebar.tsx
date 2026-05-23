@@ -35,6 +35,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
   if (orgId && role) {
     if (role === "company_admin" || role === "manager") {
       links.push({
+        href: `/org/${orgId}/tasks`,
+        label: "Tasks",
+      });
+      links.push({
         href: `/org/${orgId}/departments`,
         label: "Departments",
       });
@@ -51,6 +55,13 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
       links.push({
         href: `/org/${orgId}/settings`,
         label: "Settings",
+      });
+    }
+    // Staff sees their own tasks
+    if (role === "staff") {
+      links.push({
+        href: `/org/${orgId}/my-tasks`,
+        label: "My Tasks",
       });
     }
   }

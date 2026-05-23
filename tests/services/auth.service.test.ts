@@ -18,6 +18,8 @@ vi.mock("@/services/email.service", () => ({
 }));
 
 beforeEach(async () => {
+  await prisma.taskAssignment.deleteMany();
+  await prisma.task.deleteMany();
   await prisma.invitationToken.deleteMany();
   await prisma.departmentMembership.deleteMany();
   await prisma.department.deleteMany();

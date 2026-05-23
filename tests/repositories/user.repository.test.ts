@@ -10,6 +10,9 @@ import { prisma } from "@/lib/prisma";
 const userRepo = new UserRepository();
 
 beforeEach(async () => {
+  await prisma.invitationToken.deleteMany();
+  await prisma.departmentMembership.deleteMany();
+  await prisma.department.deleteMany();
   await prisma.membership.deleteMany();
   await prisma.session.deleteMany();
   await prisma.account.deleteMany();

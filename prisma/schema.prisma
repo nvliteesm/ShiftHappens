@@ -38,6 +38,8 @@ model Organization {
   memberships      Membership[]
   departments      Department[]
   invitationTokens InvitationToken[]
+  roles            Role[]
+  companySettings  CompanySettings?
 }
 
 model Membership {
@@ -146,4 +148,58 @@ model InvitationToken {
 
   @@index([organizationId])
   @@index([token])
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  displayLabel   String
+  description    String?
+  isDefault      Boolean  @default(false)
+  isSystemRole   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String
+  category    String
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  id           String @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+}
+
+model CompanySettings {
+  id                      String   @id @default(cuid())
+  organizationId          String   @unique
+  allocationMode          String   @default("manual")
+  taskAcceptanceMode      String   @default("auto_accept")
+  breakRuleHoursWorked    Int      @default(8)
+  breakRuleBreakHours     Int      @default(8)
+  smartAllocationWeights  String?
+  notificationPreferences String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }

@@ -48,7 +48,7 @@ export async function POST(
     return NextResponse.json(assignments, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {
-      if (error.message.includes("headcount") || error.message.includes("conflict")) {
+      if (error.message.includes("headcount") || error.message.includes("conflict") || error.message.includes("cannot be assigned")) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
       if (error.message === "Task not found") {

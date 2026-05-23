@@ -259,6 +259,32 @@ describe("TaskService", () => {
     });
   });
 
+  describe("cancelAssignment", () => {
+    it("cancels a pending assignment", async () => {
+      const task = await taskService.create({ title: "Test" }, orgId, userId);
+      const assignments = await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      await taskService.cancelAssignment(assignments[0].id);
+
+      const staffTasks = await taskService.getStaffTasks(staffMembershipId);
+      expect(staffTasks).toHaveLength(0);
+    });
+
+    it("throws if assignment is completed", async () => {
+      const task = await taskService.create({ title: "Test" }, orgId, userId);
+      const assignments = await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      await prisma.taskAssignment.update({
+        where: { id: assignments[0].id },
+        data: { status: "completed" },
+      });
+
+      await expect(
+        taskService.cancelAssignment(assignments[0].id)
+      ).rejects.toThrow("Cannot cancel a completed assignment");
+    });
+  });
+
   describe("getTasksByDepartment", () => {
     it("returns tasks for a department", async () => {
       await taskService.create({ title: "Kitchen task", departmentId: deptId }, orgId, userId);

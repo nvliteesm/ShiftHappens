@@ -66,6 +66,7 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks();
@@ -225,6 +226,50 @@ export default function TasksPage() {
         return;
       }
 
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
+  async function onUpdateTask(event: React.FormEvent<HTMLFormElement>, taskId: string) {
+    event.preventDefault();
+    setError(null);
+
+    const formData = new FormData(event.currentTarget);
+
+    const updateData: Record<string, unknown> = {
+      title: formData.get("editTitle"),
+      description: formData.get("editDescription") || undefined,
+      departmentId: formData.get("editDepartment") || undefined,
+      priority: formData.get("editPriority"),
+      requiredHeadcount: Number(formData.get("editHeadcount")) || 1,
+    };
+
+    const start = formData.get("editStart") as string;
+    const end = formData.get("editEnd") as string;
+    if (start) updateData.scheduledStart = new Date(start).toISOString();
+    if (end) updateData.scheduledEnd = new Date(end).toISOString();
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updateData),
+        }
+      );
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        setError(result.error || "Failed to update task");
+        return;
+      }
+
+      setEditingTaskId(null);
+      setSuccess("Task updated");
       fetchTasks();
     } catch {
       setError("Something went wrong");
@@ -437,6 +482,13 @@ export default function TasksPage() {
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingTaskId(editingTaskId === task.id ? null : task.id)}
+                    >
+                      {editingTaskId === task.id ? "Cancel" : "Edit"}
+                    </Button>
                     {task.status === "open" && (
                       <Button
                         variant="outline"
@@ -470,7 +522,80 @@ export default function TasksPage() {
                 </div>
               </CardHeader>
 
-              {task.description && (
+              {/* Edit task form */}
+              {editingTaskId === task.id && (
+                <CardContent>
+                  <form onSubmit={(e) => onUpdateTask(e, task.id)} className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Title</Label>
+                      <Input name="editTitle" defaultValue={task.title} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Description</Label>
+                      <Input name="editDescription" defaultValue={task.description || ""} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Department</Label>
+                        <select
+                          name="editDepartment"
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                          defaultValue={task.department?.id || ""}
+                        >
+                          <option value="">No department</option>
+                          {departments.map((dept) => (
+                            <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Priority</Label>
+                        <select
+                          name="editPriority"
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                          defaultValue={task.priority}
+                        >
+                          <option value="low">Low</option>
+                          <option value="medium">Medium</option>
+                          <option value="high">High</option>
+                          <option value="urgent">Urgent</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Required headcount</Label>
+                      <Input
+                        name="editHeadcount"
+                        type="number"
+                        min={1}
+                        max={50}
+                        defaultValue={task.requiredHeadcount}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Start time</Label>
+                        <Input
+                          name="editStart"
+                          type="datetime-local"
+                          defaultValue={task.scheduledStart ? new Date(task.scheduledStart).toISOString().slice(0, 16) : ""}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>End time</Label>
+                        <Input
+                          name="editEnd"
+                          type="datetime-local"
+                          defaultValue={task.scheduledEnd ? new Date(task.scheduledEnd).toISOString().slice(0, 16) : ""}
+                        />
+                      </div>
+                    </div>
+                    <Button type="submit" size="sm">Save Changes</Button>
+                  </form>
+                </CardContent>
+              )}
+
+              {task.description && editingTaskId !== task.id && (
                 <CardContent>
                   <p className="text-sm text-muted-foreground">{task.description}</p>
                 </CardContent>

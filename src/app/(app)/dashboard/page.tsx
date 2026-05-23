@@ -2,7 +2,7 @@
  * Dashboard Page (Boundary Layer)
  * 
  * Main landing page after login. Shows organization overview
- * including departments and member count.
+ * including departments, members, and task counts.
  * Redirects to /onboarding if user has no organization.
  */
 import { redirect } from "next/navigation";
@@ -10,6 +10,7 @@ import { auth } from "@/lib/auth";
 import { OrganizationService } from "@/services/organization.service";
 import { DepartmentService } from "@/services/department.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { prisma } from "@/lib/prisma";
 import {
   Card,
   CardContent,
@@ -32,11 +33,22 @@ export default async function DashboardPage() {
     redirect("/onboarding");
   }
 
-  // Get details for the first org (multi-org switcher comes later)
   const org = orgs[0];
   const departments = await deptService.getByOrganization(org.id);
   const members = await membershipRepo.findByOrgId(org.id);
   const activeMembers = members.filter((m) => m.status === "active");
+
+  // Task counts
+  const taskCounts = await prisma.task.groupBy({
+    by: ["status"],
+    where: { organizationId: org.id },
+    _count: true,
+  });
+
+  const totalTasks = taskCounts.reduce((sum, t) => sum + t._count, 0);
+  const openTasks = taskCounts.find((t) => t.status === "open")?._count || 0;
+  const inProgressTasks = taskCounts.find((t) => t.status === "in_progress")?._count || 0;
+  const completedTasks = taskCounts.find((t) => t.status === "completed")?._count || 0;
 
   return (
     <div>
@@ -46,7 +58,7 @@ export default async function DashboardPage() {
       </p>
 
       {/* Overview cards */}
-      <div className="mb-8 grid gap-4 md:grid-cols-3">
+      <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardHeader>
             <CardDescription>Departments</CardDescription>
@@ -55,14 +67,32 @@ export default async function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>Active Members</CardDescription>
+            <CardDescription>Active members</CardDescription>
             <CardTitle className="text-3xl">{activeMembers.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
-            <CardDescription>Total Members</CardDescription>
-            <CardTitle className="text-3xl">{members.length}</CardTitle>
+            <CardDescription>Total tasks</CardDescription>
+            <CardTitle className="text-3xl">{totalTasks}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Open</CardDescription>
+            <CardTitle className="text-3xl">{openTasks}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>In progress</CardDescription>
+            <CardTitle className="text-3xl">{inProgressTasks}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardDescription>Completed</CardDescription>
+            <CardTitle className="text-3xl">{completedTasks}</CardTitle>
           </CardHeader>
         </Card>
       </div>

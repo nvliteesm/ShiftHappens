@@ -44,6 +44,14 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         href: `/org/${orgId}/members`,
         label: "Members",
       });
+      links.push({
+        href: `/org/${orgId}/roles`,
+        label: "Roles",
+      });
+      links.push({
+        href: `/org/${orgId}/settings`,
+        label: "Settings",
+      });
     }
   }
 

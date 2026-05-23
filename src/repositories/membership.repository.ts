@@ -131,4 +131,11 @@ export class MembershipRepository {
       },
     });
   }
+
+  /** Finds a membership by its ID */
+  async findById(id: string) {
+    return prisma.membership.findUnique({
+      where: { id },
+    });
+  }
 }

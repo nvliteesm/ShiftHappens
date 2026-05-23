@@ -231,6 +231,28 @@ export default function TasksPage() {
     }
   }
 
+  async function onCancelAssignment(assignmentId: string) {
+    if (!confirm("Are you sure you want to unassign this staff member?")) return;
+    setError(null);
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/assignments/${assignmentId}`,
+        { method: "DELETE" }
+      );
+
+      if (!res.ok) {
+        const result = await res.json();
+        setError(result.error || "Failed to cancel assignment");
+        return;
+      }
+
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
   function toggleMemberSelection(membId: string) {
     setSelectedMembers((prev) =>
       prev.includes(membId)
@@ -474,6 +496,14 @@ export default function TasksPage() {
                           <span className="text-xs text-muted-foreground">
                             Out: {new Date(a.clockOutTime).toLocaleTimeString()}
                           </span>
+                        )}
+                        {a.status !== "completed" && (
+                          <button
+                            className="text-xs text-red-500 hover:underline"
+                            onClick={() => onCancelAssignment(a.id)}
+                          >
+                            Unassign
+                          </button>
                         )}
                       </div>
                     ))}

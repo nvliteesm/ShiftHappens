@@ -19,6 +19,8 @@ let orgId: string;
 let deptId: string;
 let userId: string;
 let membershipId: string;
+let staffUserId: string;
+let staffMembershipId: string;
 
 beforeEach(async () => {
   await prisma.taskAssignment.deleteMany();
@@ -58,6 +60,24 @@ beforeEach(async () => {
     where: { organizationId: orgId },
   });
   membershipId = membership!.id;
+
+  // Create a staff member for assignment tests
+  const staffUser = await userRepo.create({
+    name: "Staff User",
+    email: "staff@example.com",
+    hashedPassword: "hash",
+  });
+  staffUserId = staffUser.id;
+
+  const staffMembership = await prisma.membership.create({
+    data: {
+      userId: staffUser.id,
+      organizationId: orgId,
+      role: "staff",
+      status: "active",
+    },
+  });
+  staffMembershipId = staffMembership.id;
 });
 
 describe("TaskService", () => {
@@ -165,12 +185,12 @@ describe("TaskService", () => {
       const assignments = await taskService.assignStaff(
         task.id,
         orgId,
-        [membershipId],
+        [staffMembershipId],
         userId
       );
 
       expect(assignments).toHaveLength(1);
-      expect(assignments[0].membershipId).toBe(membershipId);
+      expect(assignments[0].membershipId).toBe(staffMembershipId);
       expect(assignments[0].status).toBe("pending");
     });
 
@@ -181,7 +201,7 @@ describe("TaskService", () => {
         userId
       );
 
-      await taskService.assignStaff(task.id, orgId, [membershipId], userId);
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
 
       const user2 = await userRepo.create({
         name: "Staff 2",
@@ -207,7 +227,7 @@ describe("TaskService", () => {
         orgId,
         userId
       );
-      await taskService.assignStaff(task1.id, orgId, [membershipId], userId);
+      await taskService.assignStaff(task1.id, orgId, [staffMembershipId], userId);
       await prisma.taskAssignment.updateMany({
         where: { taskId: task1.id },
         data: { status: "accepted" },
@@ -224,8 +244,18 @@ describe("TaskService", () => {
       );
 
       await expect(
-        taskService.assignStaff(task2.id, orgId, [membershipId], userId)
+        taskService.assignStaff(task2.id, orgId, [staffMembershipId], userId)
       ).rejects.toThrow("scheduling conflict");
+    });
+  });
+
+  describe("assignStaffValidation", () => {
+    it("throws if assigning a company admin", async () => {
+      const task = await taskService.create({ title: "Test" }, orgId, userId);
+
+      await expect(
+        taskService.assignStaff(task.id, orgId, [membershipId], userId)
+      ).rejects.toThrow("Company Admins cannot be assigned to tasks");
     });
   });
 
@@ -242,9 +272,9 @@ describe("TaskService", () => {
   describe("getStaffTasks", () => {
     it("returns tasks assigned to a member", async () => {
       const task = await taskService.create({ title: "My task" }, orgId, userId);
-      await taskService.assignStaff(task.id, orgId, [membershipId], userId);
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
 
-      const assignments = await taskService.getStaffTasks(membershipId);
+      const assignments = await taskService.getStaffTasks(staffMembershipId);
       expect(assignments).toHaveLength(1);
       expect(assignments[0].task.title).toBe("My task");
     });

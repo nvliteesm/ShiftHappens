@@ -13,11 +13,13 @@
  */
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { MembershipRepository } from "@/repositories/membership.repository";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
   private assignmentRepo = new TaskAssignmentRepository();
+  private membershipRepo = new MembershipRepository();
 
   /**
    * Creates a new task in an organization.
@@ -109,6 +111,14 @@ export class TaskService {
       );
     }
 
+    // Verify assigned members are not Company Admins
+    for (const membId of membershipIds) {
+      const membership = await this.membershipRepo.findById(membId);
+      if (membership?.role === "company_admin") {
+        throw new Error("Company Admins cannot be assigned to tasks");
+      }
+    }
+
     // Check scheduling conflicts for each member
     if (task.scheduledStart && task.scheduledEnd) {
       for (const membId of membershipIds) {
@@ -138,6 +148,18 @@ export class TaskService {
     }
 
     return assignments;
+  }
+
+  /** Cancels a task assignment — admin/manager action */
+  async cancelAssignment(assignmentId: string) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+
+    if (assignment.status === "completed") {
+      throw new Error("Cannot cancel a completed assignment");
+    }
+
+    return this.assignmentRepo.cancel(assignmentId);
   }
 
   /** Gets tasks for a specific department (manager view) */

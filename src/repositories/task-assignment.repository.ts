@@ -136,4 +136,9 @@ export class TaskAssignmentRepository {
       },
     });
   }
+
+  /** Cancels (deletes) an assignment — admin/manager action */
+  async cancel(id: string) {
+    return prisma.taskAssignment.delete({ where: { id } });
+  }
 }

@@ -21,6 +21,8 @@ model User {
   sessions        Session[]
   memberships     Membership[]
   invitationsSent InvitationToken[]
+  tasksCreated    Task[]
+  taskAssignedBy  TaskAssignment[] @relation("AssignedByUser")
 }
 
 model Organization {
@@ -40,6 +42,7 @@ model Organization {
   invitationTokens InvitationToken[]
   roles            Role[]
   companySettings  CompanySettings?
+  tasks            Task[]
 }
 
 model Membership {
@@ -54,6 +57,7 @@ model Membership {
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   departmentMemberships DepartmentMembership[]
+  taskAssignments       TaskAssignment[]
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -113,6 +117,7 @@ model Department {
 
   organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   departmentMemberships DepartmentMembership[]
+  tasks                 Task[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -202,4 +207,53 @@ model CompanySettings {
   updatedAt               DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id                String    @id @default(cuid())
+  organizationId    String
+  departmentId      String?
+  title             String
+  description       String?
+  requiredHeadcount Int       @default(1)
+  status            String    @default("open")
+  priority          String    @default("medium")
+  scheduledStart    DateTime?
+  scheduledEnd      DateTime?
+  isRecurring       Boolean   @default(false)
+  recurringPattern  String?
+  createdById       String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdBy    User             @relation(fields: [createdById], references: [id])
+  assignments  TaskAssignment[]
+
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([status])
+}
+
+model TaskAssignment {
+  id              String    @id @default(cuid())
+  taskId          String
+  membershipId    String
+  status          String    @default("pending")
+  rejectionReason String?
+  clockInTime     DateTime?
+  clockOutTime    DateTime?
+  assignedById    String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  task       Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  assignedBy User       @relation("AssignedByUser", fields: [assignedById], references: [id])
+
+  @@unique([taskId, membershipId])
+  @@index([taskId])
+  @@index([membershipId])
+  @@index([status])
 }

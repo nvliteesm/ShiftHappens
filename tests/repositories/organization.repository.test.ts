@@ -7,16 +7,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const orgRepo = new OrganizationRepository();
 const userRepo = new UserRepository();
 
 beforeEach(async () => {
-  await prisma.membership.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 });
 
 describe("OrganizationRepository", () => {

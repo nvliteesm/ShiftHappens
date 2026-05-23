@@ -8,6 +8,7 @@ import { DepartmentRepository } from "@/repositories/department.repository";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const deptRepo = new DepartmentRepository();
 const orgRepo = new OrganizationRepository();
@@ -16,11 +17,7 @@ const userRepo = new UserRepository();
 let orgId: string;
 
 beforeEach(async () => {
-  await prisma.departmentMembership.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 
   // Create a user and org for all tests to use
   const user = await userRepo.create({

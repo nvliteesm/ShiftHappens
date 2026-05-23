@@ -9,6 +9,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const taskService = new TaskService();
 const orgRepo = new OrganizationRepository();
@@ -23,19 +24,7 @@ let staffUserId: string;
 let staffMembershipId: string;
 
 beforeEach(async () => {
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
-  await prisma.rolePermission.deleteMany();
-  await prisma.role.deleteMany();
-  await prisma.companySettings.deleteMany();
-  await prisma.invitationToken.deleteMany();
-  await prisma.departmentMembership.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 
   const user = await userRepo.create({
     name: "Admin User",

@@ -6,19 +6,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { UserRepository } from "@/repositories/user.repository";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const userRepo = new UserRepository();
 
 beforeEach(async () => {
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
-  await prisma.invitationToken.deleteMany();
-  await prisma.departmentMembership.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 });
 
 describe("UserRepository", () => {

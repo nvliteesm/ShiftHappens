@@ -9,6 +9,7 @@ import { OrganizationRepository } from "@/repositories/organization.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const invitationService = new InvitationService();
 const orgRepo = new OrganizationRepository();
@@ -27,16 +28,7 @@ vi.mock("@/services/email.service", () => ({
 }));
 
 beforeEach(async () => {
-  await prisma.invitationToken.deleteMany();
-  await prisma.departmentMembership.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.organization.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.verificationToken.deleteMany();
-  await prisma.passwordResetToken.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 
   const user = await userRepo.create({
     name: "Admin User",

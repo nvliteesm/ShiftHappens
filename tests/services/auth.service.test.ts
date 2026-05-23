@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuthService } from "@/services/auth.service";
 import { prisma } from "@/lib/prisma";
+import { cleanDatabase } from "../helpers/cleanup";
 
 const authService = new AuthService();
 
@@ -18,17 +19,7 @@ vi.mock("@/services/email.service", () => ({
 }));
 
 beforeEach(async () => {
-  await prisma.taskAssignment.deleteMany();
-  await prisma.task.deleteMany();
-  await prisma.invitationToken.deleteMany();
-  await prisma.departmentMembership.deleteMany();
-  await prisma.department.deleteMany();
-  await prisma.passwordResetToken.deleteMany();
-  await prisma.verificationToken.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.session.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 });
 
 describe("AuthService", () => {

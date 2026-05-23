@@ -1,0 +1,80 @@
+/**
+ * Tasks API Endpoint (Boundary Layer)
+ * POST /api/organizations/[orgId]/tasks — Create task
+ * GET /api/organizations/[orgId]/tasks — List tasks with filters
+ * 
+ * Create requires Company Admin or Manager role.
+ * List is accessible to all org members.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { TaskService } from "@/services/task.service";
+import { createTaskSchema } from "@/lib/validations";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { MembershipRepository } from "@/repositories/membership.repository";
+
+const taskService = new TaskService();
+const membershipRepo = new MembershipRepository();
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const parsed = createTaskSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const task = await taskService.create(parsed.data, orgId, user.id);
+    return NextResponse.json(task, { status: 201 });
+  } catch (error) {
+    if (error instanceof Error && error.message === "End time must be after start time") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const filters = {
+      status: searchParams.get("status") || undefined,
+      departmentId: searchParams.get("departmentId") || undefined,
+      priority: searchParams.get("priority") || undefined,
+    };
+
+    const tasks = await taskService.getByOrganization(orgId, filters);
+    return NextResponse.json(tasks);
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

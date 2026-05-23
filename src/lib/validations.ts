@@ -157,6 +157,44 @@ export const updateOrganizationSchema = z.object({
 });
 
 // ============================================================
+// Phase 3: Role Management & Company Settings Schemas
+// ============================================================
+
+/** Validates custom role creation with permission assignments */
+export const createRoleSchema = z.object({
+  name: z.string().min(1, "Role name is required").max(50),
+  displayLabel: z.string().min(1, "Display label is required").max(50),
+  description: z.string().max(500).optional(),
+  permissionIds: z.array(z.string()).min(1, "At least one permission is required"),
+});
+
+/** Validates role updates — all fields optional for partial updates */
+export const updateRoleSchema = z.object({
+  displayLabel: z.string().min(1, "Display label is required").max(50).optional(),
+  description: z.string().max(500).optional(),
+  permissionIds: z.array(z.string()).optional(),
+});
+
+/**
+ * Validates company settings updates.
+ * allocationMode: manual (admin picks), suggested (AI suggests), auto (AI assigns)
+ * taskAcceptanceMode: auto_accept (instant) or require_acceptance (staff confirms)
+ */
+export const updateCompanySettingsSchema = z.object({
+  allocationMode: z.enum(["manual", "suggested", "auto"]).optional(),
+  taskAcceptanceMode: z.enum(["auto_accept", "require_acceptance"]).optional(),
+  breakRuleHoursWorked: z.number().int().min(1).max(24).optional(),
+  breakRuleBreakHours: z.number().int().min(1).max(24).optional(),
+  notificationPreferences: z.object({
+    emailNotifications: z.boolean().optional(),
+    taskAssignment: z.boolean().optional(),
+    taskRejection: z.boolean().optional(),
+    hourLimitWarning: z.boolean().optional(),
+    certificationExpiry: z.boolean().optional(),
+  }).optional(),
+});
+
+// ============================================================
 // Type Exports — inferred from schemas for type-safe usage
 // ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -170,3 +208,6 @@ export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
 export type InviteUserInput = z.infer<typeof inviteUserSchema>;
 export type UpdateUserRoleInput = z.infer<typeof updateUserRoleSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+export type CreateRoleInput = z.infer<typeof createRoleSchema>;
+export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
+export type UpdateCompanySettingsInput = z.infer<typeof updateCompanySettingsSchema>;

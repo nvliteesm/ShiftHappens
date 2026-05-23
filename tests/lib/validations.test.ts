@@ -16,6 +16,9 @@ import {
   inviteUserSchema,
   updateUserRoleSchema,
   updateOrganizationSchema,
+  createRoleSchema,
+  updateRoleSchema,
+  updateCompanySettingsSchema,
 } from "@/lib/validations";
 
 describe("registerSchema", () => {
@@ -242,6 +245,89 @@ describe("updateOrganizationSchema", () => {
   it("rejects invalid logo URL", () => {
     const result = updateOrganizationSchema.safeParse({
       logo: "not-a-url",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createRoleSchema", () => {
+  it("accepts valid role data", () => {
+    const result = createRoleSchema.safeParse({
+      name: "shift_lead",
+      displayLabel: "Shift Lead",
+      description: "Leads a shift",
+      permissionIds: ["perm-1", "perm-2"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty name", () => {
+    const result = createRoleSchema.safeParse({
+      name: "",
+      displayLabel: "Shift Lead",
+      permissionIds: ["perm-1"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty permissions", () => {
+    const result = createRoleSchema.safeParse({
+      name: "shift_lead",
+      displayLabel: "Shift Lead",
+      permissionIds: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("updateRoleSchema", () => {
+  it("accepts partial update", () => {
+    const result = updateRoleSchema.safeParse({
+      displayLabel: "Senior Shift Lead",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts permission update", () => {
+    const result = updateRoleSchema.safeParse({
+      permissionIds: ["perm-1", "perm-2", "perm-3"],
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("updateCompanySettingsSchema", () => {
+  it("accepts valid settings", () => {
+    const result = updateCompanySettingsSchema.safeParse({
+      allocationMode: "suggested",
+      taskAcceptanceMode: "require_acceptance",
+      breakRuleHoursWorked: 6,
+      breakRuleBreakHours: 10,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid allocation mode", () => {
+    const result = updateCompanySettingsSchema.safeParse({
+      allocationMode: "invalid_mode",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts notification preferences", () => {
+    const result = updateCompanySettingsSchema.safeParse({
+      notificationPreferences: {
+        emailNotifications: true,
+        taskAssignment: true,
+        hourLimitWarning: false,
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects break hours above 24", () => {
+    const result = updateCompanySettingsSchema.safeParse({
+      breakRuleHoursWorked: 25,
     });
     expect(result.success).toBe(false);
   });

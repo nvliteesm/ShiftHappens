@@ -2,17 +2,20 @@
  * App Layout (Boundary Layer)
  * 
  * Shared layout for all authenticated pages.
- * Fetches the user's organization and role to pass to the
- * role-aware sidebar. Redirects unauthenticated users to /login.
+ * Validates session user still exists in database.
+ * Fetches org and role for the role-aware sidebar.
+ * Redirects unauthenticated or invalid users to /login.
  */
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth";
+import { auth, signOut } from "@/lib/auth";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { OrganizationService } from "@/services/organization.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { UserRepository } from "@/repositories/user.repository";
 
 const orgService = new OrganizationService();
 const membershipRepo = new MembershipRepository();
+const userRepo = new UserRepository();
 
 export default async function AppLayout({
   children,
@@ -22,6 +25,13 @@ export default async function AppLayout({
   const session = await auth();
 
   if (!session?.user) {
+    redirect("/login");
+  }
+
+  // Validate the session user still exists in the database
+  const dbUser = await userRepo.findById(session.user.id);
+  if (!dbUser) {
+    await signOut({ redirect: false });
     redirect("/login");
   }
 

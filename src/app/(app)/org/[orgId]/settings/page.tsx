@@ -36,6 +36,17 @@ export default function SettingsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [allocationMode, setAllocationMode] = useState("manual");
+  const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
+  const [breakHoursWorked, setBreakHoursWorked] = useState(6);
+  const [breakHours, setBreakHours] = useState(1);
+  const [notifPrefs, setNotifPrefs] = useState({
+    emailNotifications: true,
+    taskAssignment: true,
+    taskRejection: true,
+    hourLimitWarning: true,
+    certificationExpiry: true,
+  });
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -51,6 +62,16 @@ export default function SettingsPage() {
       const res = await fetch(`/api/organizations/${orgId}/settings`);
       const data = await res.json();
       setSettings(data);
+      setAllocationMode(data.allocationMode);
+      setTaskAcceptanceMode(data.taskAcceptanceMode);
+      setBreakHoursWorked(data.breakRuleHoursWorked);
+      setBreakHours(data.breakRuleBreakHours);
+      if (data.notificationPreferences) {
+        setNotifPrefs({
+          ...notifPrefs,
+          ...JSON.parse(data.notificationPreferences),
+        });
+      }
     } catch {
       setMessage({ type: "error", text: "Failed to load settings" });
     }
@@ -61,26 +82,16 @@ export default function SettingsPage() {
     setMessage(null);
     setLoading(true);
 
-    const formData = new FormData(event.currentTarget);
-
     try {
       const res = await fetch(`/api/organizations/${orgId}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          allocationMode: formData.get("allocationMode"),
-          taskAcceptanceMode: formData.get("taskAcceptanceMode"),
-          breakRuleHoursWorked: Number(formData.get("breakRuleHoursWorked")),
-          breakRuleBreakHours: Number(formData.get("breakRuleBreakHours")),
-          notificationPreferences: {
-            emailNotifications:
-              formData.get("emailNotifications") === "on",
-            taskAssignment: formData.get("taskAssignment") === "on",
-            taskRejection: formData.get("taskRejection") === "on",
-            hourLimitWarning: formData.get("hourLimitWarning") === "on",
-            certificationExpiry:
-              formData.get("certificationExpiry") === "on",
-          },
+          allocationMode,
+          taskAcceptanceMode,
+          breakRuleHoursWorked: breakHoursWorked,
+          breakRuleBreakHours: breakHours,
+          notificationPreferences: notifPrefs,
         }),
       });
 
@@ -104,10 +115,6 @@ export default function SettingsPage() {
   }
 
   if (!settings) return <p>Loading...</p>;
-
-  const notifPrefs = settings.notificationPreferences
-    ? JSON.parse(settings.notificationPreferences)
-    : {};
 
   return (
     <div className="max-w-2xl">
@@ -138,9 +145,9 @@ export default function SettingsPage() {
               <Label htmlFor="allocationMode">Allocation Mode</Label>
               <select
                 id="allocationMode"
-                name="allocationMode"
                 className="w-full rounded-md border px-3 py-2 text-sm"
-                defaultValue={settings.allocationMode}
+                value={allocationMode}
+                onChange={(e) => setAllocationMode(e.target.value)}
               >
                 <option value="manual">
                   Manual — Admin assigns staff directly
@@ -158,9 +165,9 @@ export default function SettingsPage() {
               <Label htmlFor="taskAcceptanceMode">Task Acceptance</Label>
               <select
                 id="taskAcceptanceMode"
-                name="taskAcceptanceMode"
                 className="w-full rounded-md border px-3 py-2 text-sm"
-                defaultValue={settings.taskAcceptanceMode}
+                value={taskAcceptanceMode}
+                onChange={(e) => setTaskAcceptanceMode(e.target.value)}
               >
                 <option value="auto_accept">
                   Auto Accept — Staff auto-assigned
@@ -173,10 +180,10 @@ export default function SettingsPage() {
 
             <Separator />
 
-            <CardTitle className="text-base">Break Rules</CardTitle>
-            <CardDescription>
+            <p className="text-base font-medium">Break Rules</p>
+            <p className="text-sm text-muted-foreground">
               Mandatory break requirements after consecutive hours worked
-            </CardDescription>
+            </p>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -185,11 +192,11 @@ export default function SettingsPage() {
                 </Label>
                 <Input
                   id="breakRuleHoursWorked"
-                  name="breakRuleHoursWorked"
                   type="number"
                   min={1}
                   max={24}
-                  defaultValue={settings.breakRuleHoursWorked}
+                  value={breakHoursWorked}
+                  onChange={(e) => setBreakHoursWorked(Number(e.target.value))}
                 />
               </div>
               <div className="space-y-2">
@@ -198,60 +205,70 @@ export default function SettingsPage() {
                 </Label>
                 <Input
                   id="breakRuleBreakHours"
-                  name="breakRuleBreakHours"
                   type="number"
                   min={1}
                   max={24}
-                  defaultValue={settings.breakRuleBreakHours}
+                  value={breakHours}
+                  onChange={(e) => setBreakHours(Number(e.target.value))}
                 />
               </div>
             </div>
 
             <Separator />
 
-            <CardTitle className="text-base">Notifications</CardTitle>
-            <CardDescription>
+            <p className="text-base font-medium">Notifications</p>
+            <p className="text-sm text-muted-foreground">
               Configure which notifications are enabled
-            </CardDescription>
+            </p>
 
             <div className="space-y-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name="emailNotifications"
-                  defaultChecked={notifPrefs.emailNotifications ?? true}
+                  checked={notifPrefs.emailNotifications}
+                  onChange={(e) =>
+                    setNotifPrefs({ ...notifPrefs, emailNotifications: e.target.checked })
+                  }
                 />
                 Email notifications
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name="taskAssignment"
-                  defaultChecked={notifPrefs.taskAssignment ?? true}
+                  checked={notifPrefs.taskAssignment}
+                  onChange={(e) =>
+                    setNotifPrefs({ ...notifPrefs, taskAssignment: e.target.checked })
+                  }
                 />
                 Task assignment notifications
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name="taskRejection"
-                  defaultChecked={notifPrefs.taskRejection ?? true}
+                  checked={notifPrefs.taskRejection}
+                  onChange={(e) =>
+                    setNotifPrefs({ ...notifPrefs, taskRejection: e.target.checked })
+                  }
                 />
                 Task rejection notifications
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name="hourLimitWarning"
-                  defaultChecked={notifPrefs.hourLimitWarning ?? true}
+                  checked={notifPrefs.hourLimitWarning}
+                  onChange={(e) =>
+                    setNotifPrefs({ ...notifPrefs, hourLimitWarning: e.target.checked })
+                  }
                 />
                 Hour limit warning notifications
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  name="certificationExpiry"
-                  defaultChecked={notifPrefs.certificationExpiry ?? true}
+                  checked={notifPrefs.certificationExpiry}
+                  onChange={(e) =>
+                    setNotifPrefs({ ...notifPrefs, certificationExpiry: e.target.checked })
+                  }
                 />
                 Certification expiry notifications
               </label>

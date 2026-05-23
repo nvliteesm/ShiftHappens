@@ -195,7 +195,7 @@ model CompanySettings {
   allocationMode          String   @default("manual")
   taskAcceptanceMode      String   @default("auto_accept")
   breakRuleHoursWorked    Int      @default(8)
-  breakRuleBreakHours     Int      @default(8)
+  breakRuleBreakHours     Int      @default(1)
   smartAllocationWeights  String?
   notificationPreferences String?
   createdAt               DateTime @default(now())

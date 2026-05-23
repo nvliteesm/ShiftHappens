@@ -63,7 +63,7 @@ describe("SettingsRepository", () => {
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
       expect(settings.breakRuleHoursWorked).toBe(8);
-      expect(settings.breakRuleBreakHours).toBe(8);
+      expect(settings.breakRuleBreakHours).toBe(1);
     });
   });
 

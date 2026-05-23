@@ -48,7 +48,7 @@ describe("SettingsService", () => {
       expect(settings.allocationMode).toBe("manual");
       expect(settings.taskAcceptanceMode).toBe("auto_accept");
       expect(settings.breakRuleHoursWorked).toBe(8);
-      expect(settings.breakRuleBreakHours).toBe(8);
+      expect(settings.breakRuleBreakHours).toBe(1);
     });
 
     it("returns existing settings if already created", async () => {

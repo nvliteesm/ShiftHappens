@@ -31,8 +31,13 @@ export async function POST(
     const updated = await userMgmtService.toggleMemberStatus(userId, orgId);
     return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Error && error.message === "Membership not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Membership not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.includes("Cannot deactivate")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

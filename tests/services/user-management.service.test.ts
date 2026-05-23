@@ -261,5 +261,11 @@ describe("UserManagementService", () => {
         userMgmtService.toggleMemberStatus("nonexistent", orgId)
       ).rejects.toThrow("Membership not found");
     });
+
+    it("throws when deactivating the last company_admin", async () => {
+      await expect(
+        userMgmtService.toggleMemberStatus(adminUserId, orgId)
+      ).rejects.toThrow("Cannot deactivate the last active Company Admin");
+    });
   });
 });

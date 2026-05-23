@@ -147,6 +147,20 @@ export class UserManagementService {
       throw new Error("Membership not found");
     }
 
+    // Prevent deactivating the last active admin
+    if (membership.role === "company_admin" && membership.status === "active") {
+      const allMembers = await this.membershipRepo.findByOrgId(organizationId);
+      const activeAdmins = allMembers.filter(
+        (m) => m.role === "company_admin" && m.status === "active"
+      );
+
+      if (activeAdmins.length <= 1) {
+        throw new Error(
+          "Cannot deactivate the last active Company Admin."
+        );
+      }
+    }
+
     const newStatus = membership.status === "active" ? "inactive" : "active";
     return this.membershipRepo.updateStatus(membership.id, newStatus);
   }

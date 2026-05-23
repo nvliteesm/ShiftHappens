@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 import dotenv from "dotenv";
 
-dotenv.config({ path: ".env.local" });
+dotenv.config({ path: ".env.test", override: true });
 
 export default defineConfig({
   plugins: [react()],

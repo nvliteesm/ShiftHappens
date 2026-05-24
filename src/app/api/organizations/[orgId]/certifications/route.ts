@@ -1,0 +1,72 @@
+/**
+ * Certifications API Endpoint (Boundary Layer)
+ * GET /api/organizations/[orgId]/certifications — List org certifications
+ * POST /api/organizations/[orgId]/certifications — Submit certification
+ * 
+ * GET requires admin/manager. POST is for the member's own certifications.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { CertificationService } from "@/services/certification.service";
+import { createCertificationSchema } from "@/lib/validations";
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { MembershipRepository } from "@/repositories/membership.repository";
+
+const certService = new CertificationService();
+const membershipRepo = new MembershipRepository();
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership || !["company_admin", "manager"].includes(membership.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get("status") || undefined;
+
+    const certs = await certService.getByOrganization(orgId, status);
+    return NextResponse.json(certs);
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ orgId: string }> }
+) {
+  try {
+    const user = await getAuthenticatedUser();
+    if (!user) return unauthorizedResponse();
+
+    const { orgId } = await params;
+
+    const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const parsed = createCertificationSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const cert = await certService.create(membership.id, parsed.data);
+    return NextResponse.json(cert, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

@@ -70,6 +70,7 @@ export default function TasksPage() {
   const [eligibility, setEligibility] = useState<Record<string, any>>({});
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -132,8 +133,14 @@ export default function TasksPage() {
   }
 
   async function fetchSuggestions(taskId: string) {
+    // Toggle visibility if already loaded
+    if (suggestions.length > 0) {
+      setShowSuggestions(!showSuggestions);
+      return;
+    }
+
     setLoadingSuggestions(true);
-    setSuggestions([]);
+    setShowSuggestions(true);
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/tasks/${taskId}/suggest`
@@ -141,7 +148,6 @@ export default function TasksPage() {
       const data = await res.json();
       if (res.ok) {
         setSuggestions(data);
-        // Auto-select the top recommended staff
         const topIds = data
           .slice(0, tasks.find((t) => t.id === taskId)?.requiredHeadcount || 1)
           .map((s: any) => s.membershipId);
@@ -541,6 +547,8 @@ export default function TasksPage() {
                           const newId = assigningTaskId === task.id ? null : task.id;
                           setAssigningTaskId(newId);
                           setSelectedMembers([]);
+                          setSuggestions([]);
+                          setShowSuggestions(false);
                           if (newId) fetchEligibility(newId);
                         }}
                       >
@@ -693,22 +701,29 @@ export default function TasksPage() {
                       onClick={() => fetchSuggestions(task.id)}
                       disabled={loadingSuggestions}
                     >
-                      {loadingSuggestions ? "Getting suggestions..." : "✨ AI Suggest"}
+                      {loadingSuggestions
+                        ? "Getting suggestions..."
+                        : suggestions.length > 0 && showSuggestions
+                        ? "Hide Suggestions"
+                        : "✨ AI Suggest"}
                     </Button>
                   </div>
 
                   {/* AI Suggestions */}
-                  {suggestions.length > 0 && (
+                  {suggestions.length > 0 && showSuggestions && (
                     <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3">
                       <p className="mb-2 text-sm font-medium text-blue-800">
-                        AI Recommendations
+                        AI Recommendations (top {task.requiredHeadcount} auto-selected)
                       </p>
                       <div className="space-y-2">
                         {suggestions.map((s) => {
                           const member = members.find(
                             (m) => m.id === s.membershipId
                           );
-                          const name = member?.user.name || member?.user.email || "Unknown";
+                          const eligEntry = Object.values(eligibility).find(
+                            (e: any) => e.membershipId === s.membershipId
+                          ) as any;
+                          const name = member?.user.name || member?.user.email || eligEntry?.memberName || "Unknown";
                           return (
                             <div key={s.membershipId} className="text-sm">
                               <span className="font-medium text-blue-700">
@@ -732,18 +747,22 @@ export default function TasksPage() {
                       const suggestion = suggestions.find(
                         (s) => s.membershipId === m.id
                       );
+                      const atLimit =
+                        !selectedMembers.includes(m.id) &&
+                        selectedMembers.length >= task.requiredHeadcount;
 
                       return (
                         <label
                           key={m.id}
                           className={`flex items-center gap-2 text-sm ${
-                            !isEligible ? "opacity-60" : ""
+                            !isEligible || atLimit ? "opacity-60" : ""
                           }`}
                         >
                           <input
                             type="checkbox"
                             checked={selectedMembers.includes(m.id)}
                             onChange={() => toggleMemberSelection(m.id)}
+                            disabled={!isEligible || atLimit}
                           />
                           <span>{m.user.name || m.user.email}</span>
                           <span className="text-xs text-muted-foreground">({m.role})</span>

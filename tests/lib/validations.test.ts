@@ -23,6 +23,12 @@ import {
   updateTaskSchema,
   assignTaskSchema,
   rejectTaskSchema,
+  setAvailabilitySchema,
+  setWeeklyAvailabilitySchema,
+  createAvailabilityOverrideSchema,
+  createCertificationSchema,
+  verifyCertificationSchema,
+  createEligibilityOverrideSchema,
 } from "@/lib/validations";
 
 describe("registerSchema", () => {
@@ -432,6 +438,148 @@ describe("rejectTaskSchema", () => {
   it("rejects empty reason", () => {
     const result = rejectTaskSchema.safeParse({
       rejectionReason: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("setAvailabilitySchema", () => {
+  it("accepts valid availability", () => {
+    const result = setAvailabilitySchema.safeParse({
+      dayOfWeek: 1,
+      startTime: "09:00",
+      endTime: "17:00",
+      isAvailable: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid day", () => {
+    const result = setAvailabilitySchema.safeParse({
+      dayOfWeek: 7,
+      startTime: "09:00",
+      endTime: "17:00",
+      isAvailable: true,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid time format", () => {
+    const result = setAvailabilitySchema.safeParse({
+      dayOfWeek: 1,
+      startTime: "9am",
+      endTime: "5pm",
+      isAvailable: true,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("setWeeklyAvailabilitySchema", () => {
+  it("accepts full week schedule", () => {
+    const schedule = Array.from({ length: 7 }, (_, i) => ({
+      dayOfWeek: i,
+      startTime: "09:00",
+      endTime: "17:00",
+      isAvailable: i < 5,
+    }));
+    const result = setWeeklyAvailabilitySchema.safeParse({ schedule });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty schedule", () => {
+    const result = setWeeklyAvailabilitySchema.safeParse({ schedule: [] });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createAvailabilityOverrideSchema", () => {
+  it("accepts valid override", () => {
+    const result = createAvailabilityOverrideSchema.safeParse({
+      date: "2026-06-15T00:00:00.000Z",
+      isAvailable: false,
+      reason: "Personal day off",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts override without reason", () => {
+    const result = createAvailabilityOverrideSchema.safeParse({
+      date: "2026-06-15T00:00:00.000Z",
+      isAvailable: true,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("createCertificationSchema", () => {
+  it("accepts valid certification", () => {
+    const result = createCertificationSchema.safeParse({
+      name: "Food Safety Level 2",
+      issuedDate: "2026-01-15T00:00:00.000Z",
+      expiryDate: "2027-01-15T00:00:00.000Z",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty name", () => {
+    const result = createCertificationSchema.safeParse({
+      name: "",
+      issuedDate: "2026-01-15T00:00:00.000Z",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts certification without expiry", () => {
+    const result = createCertificationSchema.safeParse({
+      name: "First Aid",
+      issuedDate: "2026-01-15T00:00:00.000Z",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("verifyCertificationSchema", () => {
+  it("accepts verified status", () => {
+    const result = verifyCertificationSchema.safeParse({ status: "verified" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts rejected status", () => {
+    const result = verifyCertificationSchema.safeParse({ status: "rejected" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid status", () => {
+    const result = verifyCertificationSchema.safeParse({ status: "approved" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createEligibilityOverrideSchema", () => {
+  it("accepts valid override", () => {
+    const result = createEligibilityOverrideSchema.safeParse({
+      membershipId: "member-123",
+      reason: "Manager approved exception",
+      ruleOverridden: "hours_limit",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty reason", () => {
+    const result = createEligibilityOverrideSchema.safeParse({
+      membershipId: "member-123",
+      reason: "",
+      ruleOverridden: "certification",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid rule", () => {
+    const result = createEligibilityOverrideSchema.safeParse({
+      membershipId: "member-123",
+      reason: "Special case",
+      ruleOverridden: "invalid_rule",
     });
     expect(result.success).toBe(false);
   });

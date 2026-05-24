@@ -234,6 +234,50 @@ export const rejectTaskSchema = z.object({
 });
 
 // ============================================================
+// Phase 5: Availability, Certification & Eligibility Schemas
+// ============================================================
+
+/** Validates weekly availability schedule entry */
+export const setAvailabilitySchema = z.object({
+  dayOfWeek: z.number().int().min(0).max(6),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM format"),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Use HH:MM format"),
+  isAvailable: z.boolean(),
+});
+
+/** Validates bulk availability update (full week) */
+export const setWeeklyAvailabilitySchema = z.object({
+  schedule: z.array(setAvailabilitySchema).min(1).max(7),
+});
+
+/** Validates a date-specific availability override */
+export const createAvailabilityOverrideSchema = z.object({
+  date: z.string().datetime(),
+  isAvailable: z.boolean(),
+  reason: z.string().max(500).optional(),
+});
+
+/** Validates certification submission */
+export const createCertificationSchema = z.object({
+  name: z.string().min(1, "Certification name is required").max(200),
+  issuedDate: z.string().datetime(),
+  expiryDate: z.string().datetime().optional(),
+  documentUrl: z.string().url().optional(),
+});
+
+/** Validates certification verification by manager */
+export const verifyCertificationSchema = z.object({
+  status: z.enum(["verified", "rejected"]),
+});
+
+/** Validates eligibility override with required reason */
+export const createEligibilityOverrideSchema = z.object({
+  membershipId: z.string().min(1),
+  reason: z.string().min(1, "Override reason is required").max(500),
+  ruleOverridden: z.enum(["hours_limit", "certification", "availability"]),
+});
+
+// ============================================================
 // Type Exports — inferred from schemas for type-safe usage
 // ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -254,3 +298,9 @@ export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type AssignTaskInput = z.infer<typeof assignTaskSchema>;
 export type RejectTaskInput = z.infer<typeof rejectTaskSchema>;
+export type SetAvailabilityInput = z.infer<typeof setAvailabilitySchema>;
+export type SetWeeklyAvailabilityInput = z.infer<typeof setWeeklyAvailabilitySchema>;
+export type CreateAvailabilityOverrideInput = z.infer<typeof createAvailabilityOverrideSchema>;
+export type CreateCertificationInput = z.infer<typeof createCertificationSchema>;
+export type VerifyCertificationInput = z.infer<typeof verifyCertificationSchema>;
+export type CreateEligibilityOverrideInput = z.infer<typeof createEligibilityOverrideSchema>;

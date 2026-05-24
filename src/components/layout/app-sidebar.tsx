@@ -42,6 +42,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         href: `/org/${orgId}/departments`,
         label: "Departments",
       });
+      links.push({
+        href: `/org/${orgId}/certifications`,
+        label: "Certifications",
+      });
     }
     if (role === "company_admin") {
       links.push({
@@ -57,7 +61,11 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         label: "Settings",
       });
     }
-    // Staff sees their own tasks
+    // All members can manage their own availability and view tasks
+    links.push({
+      href: `/org/${orgId}/availability`,
+      label: "My Availability",
+    });
     if (role === "staff") {
       links.push({
         href: `/org/${orgId}/my-tasks`,

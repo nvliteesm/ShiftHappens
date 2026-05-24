@@ -67,6 +67,7 @@ export default function TasksPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [eligibility, setEligibility] = useState<Record<string, any>>({});
 
   useEffect(() => {
     fetchTasks();
@@ -107,6 +108,20 @@ export default function TasksPage() {
       const res = await fetch(`/api/organizations/${orgId}/members`);
       const data = await res.json();
       setMembers(data.filter((m: Member) => m.status === "active"));
+    } catch {}
+  }
+
+  async function fetchEligibility(taskId: string) {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
+      );
+      const data = await res.json();
+      const map: Record<string, any> = {};
+      for (const item of data) {
+        map[item.membershipId] = item;
+      }
+      setEligibility(map);
     } catch {}
   }
 
@@ -494,8 +509,10 @@ export default function TasksPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          setAssigningTaskId(assigningTaskId === task.id ? null : task.id);
+                          const newId = assigningTaskId === task.id ? null : task.id;
+                          setAssigningTaskId(newId);
                           setSelectedMembers([]);
+                          if (newId) fetchEligibility(newId);
                         }}
                       >
                         Assign
@@ -641,17 +658,38 @@ export default function TasksPage() {
                 <CardContent>
                   <p className="mb-2 text-sm font-medium">Select staff to assign</p>
                   <div className="mb-3 space-y-1">
-                    {members.map((m) => (
-                      <label key={m.id} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={selectedMembers.includes(m.id)}
-                          onChange={() => toggleMemberSelection(m.id)}
-                        />
-                        <span>{m.user.name || m.user.email}</span>
-                        <span className="text-xs text-muted-foreground">({m.role})</span>
-                      </label>
-                    ))}
+                    {members.map((m) => {
+                      const elig = eligibility[m.id];
+                      const isEligible = elig ? elig.eligible : true;
+
+                      return (
+                        <label
+                          key={m.id}
+                          className={`flex items-center gap-2 text-sm ${
+                            !isEligible ? "opacity-60" : ""
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedMembers.includes(m.id)}
+                            onChange={() => toggleMemberSelection(m.id)}
+                          />
+                          <span>{m.user.name || m.user.email}</span>
+                          <span className="text-xs text-muted-foreground">({m.role})</span>
+                          {elig && !elig.eligible && (
+                            <span className="text-xs text-red-500">
+                              {elig.checks.availability?.reason ||
+                               elig.checks.scheduling?.reason ||
+                               elig.checks.hoursLimit?.reason ||
+                               "Ineligible"}
+                            </span>
+                          )}
+                          {elig && elig.eligible && (
+                            <span className="text-xs text-green-500">✓ eligible</span>
+                          )}
+                        </label>
+                      );
+                    })}
                   </div>
                   <Button size="sm" onClick={() => onAssignStaff(task.id)}>
                     Confirm Assignment

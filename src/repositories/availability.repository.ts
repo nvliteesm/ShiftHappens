@@ -1,0 +1,147 @@
+/**
+ * Availability Repository (Entity Layer)
+ * 
+ * Data access layer for staff weekly availability schedules
+ * and date-specific overrides. Each staff member has a weekly
+ * pattern (Mon-Sun) and can override specific dates.
+ * 
+ * dayOfWeek: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+ * Times stored as "HH:MM" strings for simplicity.
+ */
+import { prisma } from "@/lib/prisma";
+
+export class AvailabilityRepository {
+  /** Sets availability for a specific day of the week (upserts) */
+  async setDayAvailability(data: {
+    membershipId: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isAvailable: boolean;
+  }) {
+    return prisma.availability.upsert({
+      where: {
+        membershipId_dayOfWeek: {
+          membershipId: data.membershipId,
+          dayOfWeek: data.dayOfWeek,
+        },
+      },
+      update: {
+        startTime: data.startTime,
+        endTime: data.endTime,
+        isAvailable: data.isAvailable,
+      },
+      create: data,
+    });
+  }
+
+  /** Gets the full weekly schedule for a member */
+  async getWeeklySchedule(membershipId: string) {
+    return prisma.availability.findMany({
+      where: { membershipId },
+      orderBy: { dayOfWeek: "asc" },
+    });
+  }
+
+  /** Creates a date-specific override (e.g. day off, extra shift) */
+  async createOverride(data: {
+    membershipId: string;
+    date: Date;
+    isAvailable: boolean;
+    reason?: string;
+  }) {
+    return prisma.availabilityOverride.upsert({
+      where: {
+        membershipId_date: {
+          membershipId: data.membershipId,
+          date: data.date,
+        },
+      },
+      update: {
+        isAvailable: data.isAvailable,
+        reason: data.reason,
+      },
+      create: data,
+    });
+  }
+
+  /** Gets all overrides for a member within a date range */
+  async getOverrides(membershipId: string, startDate?: Date, endDate?: Date) {
+    return prisma.availabilityOverride.findMany({
+      where: {
+        membershipId,
+        ...(startDate && endDate && {
+          date: { gte: startDate, lte: endDate },
+        }),
+      },
+      orderBy: { date: "asc" },
+    });
+  }
+
+  /** Gets the override for a specific date, if any */
+  async getOverrideForDate(membershipId: string, date: Date) {
+    return prisma.availabilityOverride.findUnique({
+      where: {
+        membershipId_date: {
+          membershipId,
+          date,
+        },
+      },
+    });
+  }
+
+  /** Deletes a specific override */
+  async deleteOverride(id: string) {
+    return prisma.availabilityOverride.delete({ where: { id } });
+  }
+
+  /**
+   * Checks if a member is available at a specific date and time.
+   * Priority: date override > weekly schedule > default (unavailable)
+   */
+  async isAvailableAt(
+    membershipId: string,
+    date: Date,
+    startTime: string,
+    endTime: string
+  ): Promise<{ available: boolean; reason?: string }> {
+    // Check for date-specific override first
+    const dateOnly = new Date(date.toISOString().split("T")[0] + "T00:00:00.000Z");
+    const override = await this.getOverrideForDate(membershipId, dateOnly);
+
+    if (override) {
+      return {
+        available: override.isAvailable,
+        reason: override.isAvailable
+          ? undefined
+          : override.reason || "Date override: unavailable",
+      };
+    }
+
+    // Fall back to weekly schedule
+    const dayOfWeek = date.getDay();
+    const schedule = await prisma.availability.findUnique({
+      where: {
+        membershipId_dayOfWeek: { membershipId, dayOfWeek },
+      },
+    });
+
+    if (!schedule) {
+      return { available: false, reason: "No availability set for this day" };
+    }
+
+    if (!schedule.isAvailable) {
+      return { available: false, reason: "Marked unavailable for this day" };
+    }
+
+    // Check if task time falls within available hours
+    if (startTime < schedule.startTime || endTime > schedule.endTime) {
+      return {
+        available: false,
+        reason: `Available ${schedule.startTime}–${schedule.endTime} only`,
+      };
+    }
+
+    return { available: true };
+  }
+}

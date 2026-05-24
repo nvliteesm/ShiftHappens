@@ -1,36 +1,370 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Smart Task Allocation
+
+A SaaS platform for intelligent workforce management in shift-based industries (hospitality, retail, healthcare). Features AI-powered staff allocation, eligibility engine, and real-time scheduling.
+
+**Project:** CSIT321 Final Year Project — University of Wollongong (SIM Campus)  
+**Team:** CSIT-26-S2-04
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Framework | Next.js (App Router) | 16.2.6 |
+| Language | TypeScript | 5.x |
+| Styling | Tailwind CSS + shadcn/ui | 4.x |
+| Database | PostgreSQL | 17+ |
+| ORM | Prisma | 6.19.3 |
+| Auth | NextAuth.js v5 | 5.0.0-beta.31 |
+| Email | Resend | 6.12.3 |
+| AI | Groq + Google Gemini | Strategy pattern |
+| Testing | Vitest | 4.1.6 |
+
+---
+
+## Prerequisites
+
+Before you begin, make sure you have these installed:
+
+- **Node.js** v22+ — [Download](https://nodejs.org/)
+- **npm** v11+ (comes with Node.js)
+- **PostgreSQL** 17+ — [Download](https://www.postgresql.org/download/)
+- **Git** — [Download](https://git-scm.com/)
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/nvliteesm/ShiftHappens.git
+cd ShiftHappens
+```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Set up PostgreSQL databases
+
+Open a terminal and create two databases — one for development, one for testing:
+
+```bash
+psql -U postgres -c "CREATE DATABASE smart_task_allocation;"
+psql -U postgres -c "CREATE DATABASE smart_task_allocation_test;"
+```
+
+You'll be prompted for your PostgreSQL password.
+
+### 4. Create environment files
+
+Create three files in the project root:
+
+**`.env`** — Used by Prisma CLI:
+```env
+DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allocation"
+```
+
+**`.env.local`** — Used by the dev server:
+```env
+# Database
+DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allocation"
+
+# NextAuth
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="generate-a-random-secret-here"
+
+# Resend (Email)
+RESEND_API_KEY="re_your_resend_api_key"
+RESEND_FROM_EMAIL="onboarding@resend.dev"
+
+# AI Providers
+GROQ_API_KEY="gsk_your_groq_api_key"
+GEMINI_API_KEY="your_gemini_api_key"
+AI_PROVIDER="groq"
+```
+
+**`.env.test`** — Used by tests:
+```env
+DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allocation_test"
+```
+
+> **Note:** Replace `YOUR_PASSWORD` with your PostgreSQL password. If your password contains special characters like `@`, the `.env` files handle them correctly — do not URL-encode them.
+
+To generate a NextAuth secret:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### 5. Run database migrations
+
+Apply migrations to both databases:
+
+```bash
+# Dev database
+npx prisma migrate dev
+
+# Test database
+set DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allocation_test
+npx prisma migrate deploy
+set DATABASE_URL=
+```
+
+> **Important (Windows):** Always run `set DATABASE_URL=` after test database operations to clear the environment variable.
+
+### 6. Seed the database
+
+Seed permissions (required for RBAC):
+```bash
+npx prisma db seed
+```
+
+Seed demo data (optional — creates sample org with staff, tasks, and certifications):
+```bash
+npx tsx prisma/seed-demo.ts
+```
+
+Also seed the test database:
+```bash
+set DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/smart_task_allocation_test
+npx prisma db seed
+set DATABASE_URL=
+```
+
+### 7. Start the development server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Demo Accounts
 
-## Learn More
+If you ran the demo seed script, these accounts are available:
 
-To learn more about Next.js, take a look at the following resources:
+| Role | Email | Password |
+|------|-------|----------|
+| Company Admin | admin@oceangrill.com | TestPass1! |
+| Manager (Kitchen) | sarah@oceangrill.com | TestPass1! |
+| Manager (Bar) | marcus@oceangrill.com | TestPass1! |
+| Staff | alex@oceangrill.com | TestPass1! |
+| Staff | jamie@oceangrill.com | TestPass1! |
+| Staff | taylor@oceangrill.com | TestPass1! |
+| Staff | jordan@oceangrill.com | TestPass1! |
+| Staff | casey@oceangrill.com | TestPass1! |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Commands
 
-## Deploy on Vercel
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server on localhost:3000 |
+| `npm test` | Run all tests (uses test database) |
+| `npm run build` | Production build check |
+| `npm run lint` | ESLint check |
+| `npx prisma studio` | Visual database browser on localhost:5555 |
+| `npx prisma migrate dev --name <name>` | Create new migration |
+| `npx prisma db seed` | Seed permissions |
+| `npx tsx prisma/seed-demo.ts` | Seed demo data |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project Architecture
+
+This project follows the **BCE (Boundary-Control-Entity)** architecture pattern:
+
+```
+Boundary (Pages, API Routes)
+    ↓
+Control (Services — business logic)
+    ↓
+Entity (Repositories — data access)
+    ↓
+Database (PostgreSQL via Prisma)
+```
+
+- **Boundary** never directly accesses Entity
+- Every request flows through the Control layer
+- All database queries are org-scoped for multi-tenant isolation
+
+### Directory Structure
+
+```
+src/
+├── app/                    # Next.js pages and API routes (Boundary)
+│   ├── (auth)/             # Auth pages (login, register, etc.)
+│   ├── (app)/              # Authenticated pages with sidebar
+│   └── api/                # API route handlers
+├── services/               # Business logic (Control)
+├── repositories/           # Data access (Entity)
+├── components/             # UI components
+└── lib/                    # Shared utilities (auth, prisma, validations)
+
+tests/
+├── helpers/                # Shared test utilities
+├── repositories/           # Repository tests
+├── services/               # Service tests
+└── lib/                    # Validation tests
+```
+
+---
+
+## Features
+
+### Phase 1 — Authentication
+- Register, login, logout
+- Email verification via Resend
+- Password reset flow
+- Profile management
+
+### Phase 2 — Organization Management
+- Multi-tenant organizations
+- Department CRUD with color coding
+- User invitation system (7-day token expiry)
+- Member role management (Company Admin / Manager / Staff)
+- Activate/deactivate members
+
+### Phase 3 — RBAC & Settings
+- 34 granular permissions across 10 categories
+- Custom role creation with permission toggles
+- Company settings (allocation mode, break rules, notifications)
+
+### Phase 4 — Task Management
+- Task CRUD with scheduling, priority, and headcount
+- Staff assignment with conflict detection
+- Accept/reject assignments with reasons
+- Clock in/out time tracking
+- Task lifecycle (open → in_progress → completed → cancelled)
+
+### Phase 5 — Smart Allocation
+- Three-dimensional eligibility engine (hours, availability, scheduling)
+- Weekly availability schedules with date overrides
+- Certification management (submit, verify, reject)
+- AI-powered staff ranking via Groq with Gemini failover
+- Weighted algorithmic fallback when AI is unavailable
+- Three allocation modes: manual, suggested, auto
+
+---
+
+## AI Integration
+
+The platform uses AI to rank eligible staff for task assignments. The system uses a **Strategy pattern** with automatic failover:
+
+1. **Primary:** Groq (Llama 3.1) — fast, free tier
+2. **Fallback:** Google Gemini — generous free tier
+3. **Algorithmic:** Weighted multi-factor scoring (if both AI providers fail)
+
+The algorithmic fallback scores candidates across four dimensions:
+- Hours utilization (30%) — fewer hours = higher score
+- Availability fit (25%) — tighter match = higher score
+- Certifications (25%) — more relevant certs = higher score
+- Department experience (20%) — more history = higher score
+
+To switch AI providers, set `AI_PROVIDER` in `.env.local`:
+```env
+AI_PROVIDER="groq"    # default
+AI_PROVIDER="gemini"  # backup
+```
+
+---
+
+## API Keys Setup
+
+### Groq (AI — Required for smart allocation)
+1. Go to [console.groq.com](https://console.groq.com)
+2. Sign up (free, no credit card)
+3. Create an API key
+4. Add to `.env.local` as `GROQ_API_KEY`
+
+### Google Gemini (AI — Backup)
+1. Go to [aistudio.google.com](https://aistudio.google.com)
+2. Sign in with Google
+3. Get an API key
+4. Add to `.env.local` as `GEMINI_API_KEY`
+
+### Resend (Email)
+1. Go to [resend.com](https://resend.com)
+2. Sign up (free, no credit card)
+3. Create an API key
+4. Add to `.env.local` as `RESEND_API_KEY`
+
+> **Note:** With `onboarding@resend.dev`, emails can only be sent to the email address you registered with on Resend. To send to any address, verify a custom domain in Resend.
+
+---
+
+## Testing
+
+Tests use a separate database (`smart_task_allocation_test`) to prevent dev data loss.
+
+```bash
+# Run all tests
+npm test
+
+# Run a specific test file
+npm test -- tests/services/task.service.test.ts
+
+# Run tests matching a pattern
+npm test -- --grep "eligibility"
+```
+
+Current: **322 tests, 28 test files, all passing.**
+
+---
+
+## Troubleshooting
+
+### "Database does not exist"
+Create the databases:
+```bash
+psql -U postgres -c "CREATE DATABASE smart_task_allocation;"
+psql -U postgres -c "CREATE DATABASE smart_task_allocation_test;"
+```
+
+### Tests failing with foreign key errors
+The `cleanDatabase()` helper in `tests/helpers/cleanup.ts` handles deletion order. If you add new tables with foreign keys, update this file.
+
+### Dev server connecting to wrong database
+Check for a lingering environment variable:
+```bash
+echo %DATABASE_URL%
+```
+If it shows the test database URL, clear it:
+```bash
+set DATABASE_URL=
+```
+
+### Prisma client types not recognized
+Regenerate the client:
+```bash
+npx prisma generate
+```
+Then restart VS Code's TypeScript server: `Ctrl+Shift+P` → "TypeScript: Restart TS Server"
+
+### Email not sending
+- Check `RESEND_API_KEY` is set in `.env.local`
+- With `onboarding@resend.dev`, you can only send to your own Resend account email
+- Check the terminal for `[Email Error]` messages
+
+---
+
+## Contributing
+
+1. Create a feature branch: `git checkout -b feature/your-feature`
+2. Follow BCE architecture — services for logic, repositories for data
+3. Write tests for all new services and repositories
+4. Run `npm test` and `npm run build` before committing
+5. Use descriptive commit messages: `feat:`, `fix:`, `refactor:`
+
+---
+
+## License
+
+This project is part of CSIT321 Final Year Project at the University of Wollongong (SIM Campus). All rights reserved.

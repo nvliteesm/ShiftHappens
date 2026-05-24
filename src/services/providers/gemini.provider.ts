@@ -26,7 +26,7 @@ export class GeminiProvider implements AIProvider {
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      throw new Error("GEMINI_API_KEY is not configured");
+      return this.fallbackRanking(candidates);
     }
 
     if (candidates.length === 0) {

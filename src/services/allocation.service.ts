@@ -11,6 +11,7 @@
  * certifications, availability, department history) and sends
  * them to the AI provider for intelligent ranking.
  */
+import { FallbackRanker } from "./fallback-ranker";
 import type { AIProvider, StaffCandidate, RankedStaff } from "./ai-provider";
 import { GroqProvider } from "./providers/groq.provider";
 import { GeminiProvider } from "./providers/gemini.provider";
@@ -22,25 +23,42 @@ import { TaskService } from "./task.service";
 import { prisma } from "@/lib/prisma";
 
 export class AllocationService {
-  private aiProvider: AIProvider;
+  private providers: AIProvider[];
   private eligibilityService = new EligibilityService();
   private certRepo = new CertificationRepository();
   private settingsRepo = new SettingsRepository();
   private taskRepo = new TaskRepository();
   private taskService = new TaskService();
 
-  constructor(provider?: string) {
-    // Strategy pattern: select AI provider based on config
-    const selectedProvider = provider || process.env.AI_PROVIDER || "groq";
-    switch (selectedProvider) {
-      case "gemini":
-        this.aiProvider = new GeminiProvider();
-        break;
-      case "groq":
-      default:
-        this.aiProvider = new GroqProvider();
-        break;
+  constructor() {
+    const primary = process.env.AI_PROVIDER || "groq";
+
+    if (primary === "gemini") {
+      this.providers = [new GeminiProvider(), new GroqProvider()];
+    } else {
+      this.providers = [new GroqProvider(), new GeminiProvider()];
     }
+  }
+
+  /**
+   * Tries each AI provider in order. If one fails, falls back to the next.
+   * If all fail, uses the algorithmic fallback ranker.
+   */
+  private async rankWithFailover(
+    task: Parameters<AIProvider["rankStaff"]>[0],
+    candidates: Parameters<AIProvider["rankStaff"]>[1]
+  ): Promise<RankedStaff[]> {
+    for (const provider of this.providers) {
+      try {
+        const result = await provider.rankStaff(task, candidates);
+        return result;
+      } catch (error) {
+        console.error("[AI Failover] Provider failed, trying next:", error);
+      }
+    }
+
+    console.error("[AI Failover] All providers failed, using algorithmic ranking");
+    return FallbackRanker.rank(candidates);
   }
 
   /**
@@ -54,20 +72,17 @@ export class AllocationService {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
-    // Get eligibility results
     const eligibility = await this.eligibilityService.checkEligibilityForTask(
       taskId,
       organizationId
     );
 
-    // Filter to eligible staff only
     const eligibleStaff = eligibility.filter((e) => e.eligible);
 
     if (eligibleStaff.length === 0) {
       return [];
     }
 
-    // Gather detailed attributes for each eligible staff member
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const candidates: StaffCandidate[] = [];
 
@@ -81,8 +96,7 @@ export class AllocationService {
       candidates.push(candidate);
     }
 
-    // Send to AI for ranking
-    const rankings = await this.aiProvider.rankStaff(
+    const rankings = await this.rankWithFailover(
       {
         title: task.title,
         department: task.department?.name || null,

@@ -30,7 +30,7 @@ export class GroqProvider implements AIProvider {
     candidates: StaffCandidate[]
   ): Promise<RankedStaff[]> {
     if (!this.apiKey) {
-      throw new Error("GROQ_API_KEY is not configured");
+      return this.fallbackRanking(candidates);
     }
 
     if (candidates.length === 0) {

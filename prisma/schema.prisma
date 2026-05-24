@@ -23,6 +23,8 @@ model User {
   invitationsSent InvitationToken[]
   tasksCreated    Task[]
   taskAssignedBy  TaskAssignment[] @relation("AssignedByUser")
+  certificationsVerified Certification[]        @relation("CertificationVerifier")
+  eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
 }
 
 model Organization {
@@ -58,6 +60,10 @@ model Membership {
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   departmentMemberships DepartmentMembership[]
   taskAssignments       TaskAssignment[]
+  availabilities        Availability[]
+  availabilityOverrides AvailabilityOverride[]
+  certifications        Certification[]
+  eligibilityOverrides  EligibilityOverride[]
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -230,6 +236,7 @@ model Task {
   department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
+  eligibilityOverrides EligibilityOverride[]
 
   @@index([organizationId])
   @@index([departmentId])
@@ -256,4 +263,72 @@ model TaskAssignment {
   @@index([taskId])
   @@index([membershipId])
   @@index([status])
+}
+
+model Availability {
+  id           String   @id @default(cuid())
+  membershipId String
+  dayOfWeek    Int
+  startTime    String
+  endTime      String
+  isAvailable  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, dayOfWeek])
+  @@index([membershipId])
+}
+
+model AvailabilityOverride {
+  id           String   @id @default(cuid())
+  membershipId String
+  date         DateTime
+  isAvailable  Boolean  @default(false)
+  reason       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, date])
+  @@index([membershipId])
+}
+
+model Certification {
+  id           String    @id @default(cuid())
+  membershipId String
+  name         String
+  issuedDate   DateTime
+  expiryDate   DateTime?
+  documentUrl  String?
+  status       String    @default("pending")
+  verifiedById String?
+  verifiedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  verifiedBy User?      @relation("CertificationVerifier", fields: [verifiedById], references: [id])
+
+  @@index([membershipId])
+  @@index([status])
+}
+
+model EligibilityOverride {
+  id             String   @id @default(cuid())
+  taskId         String
+  membershipId   String
+  overriddenById String
+  reason         String
+  ruleOverridden String
+  createdAt      DateTime @default(now())
+
+  task       Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  overriddenBy User     @relation("EligibilityOverrider", fields: [overriddenById], references: [id])
+
+  @@index([taskId])
+  @@index([membershipId])
 }

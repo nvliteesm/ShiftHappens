@@ -71,6 +71,7 @@ export default function TasksPage() {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingEligibility, setLoadingEligibility] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -119,6 +120,7 @@ export default function TasksPage() {
   }
 
   async function fetchEligibility(taskId: string) {
+    setLoadingEligibility(true);
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/tasks/${taskId}/eligibility`
@@ -129,7 +131,9 @@ export default function TasksPage() {
         map[item.membershipId] = item;
       }
       setEligibility(map);
-    } catch {}
+    } catch {} finally {
+      setLoadingEligibility(false);
+    }
   }
 
   async function fetchSuggestions(taskId: string) {
@@ -433,7 +437,12 @@ export default function TasksPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
-                <Input id="description" name="description" />
+                <textarea
+                  id="description"
+                  name="description"
+                  className="w-full rounded-md border px-3 py-2 text-sm min-h-[80px]"
+                  placeholder="Task details..."
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -586,7 +595,12 @@ export default function TasksPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Description</Label>
-                      <Input name="editDescription" defaultValue={task.description || ""} />
+                      <textarea
+                        name="editDescription"
+                        defaultValue={task.description || ""}
+                        className="w-full rounded-md border px-3 py-2 text-sm min-h-[80px]"
+                        placeholder="Task details..."
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -699,7 +713,7 @@ export default function TasksPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => fetchSuggestions(task.id)}
-                      disabled={loadingSuggestions}
+                      disabled={loadingSuggestions || loadingEligibility}
                     >
                       {loadingSuggestions
                         ? "Getting suggestions..."
@@ -740,53 +754,61 @@ export default function TasksPage() {
                     </div>
                   )}
 
-                  <div className="mb-3 space-y-1">
-                    {members.map((m) => {
-                      const elig = eligibility[m.id];
-                      const isEligible = elig ? elig.eligible : true;
-                      const suggestion = suggestions.find(
-                        (s) => s.membershipId === m.id
-                      );
-                      const atLimit =
-                        !selectedMembers.includes(m.id) &&
-                        selectedMembers.length >= task.requiredHeadcount;
+                  {loadingEligibility ? (
+                    <p className="text-sm text-muted-foreground">Checking staff eligibility...</p>
+                  ) : (
+                    <div className="mb-3 space-y-1">
+                      {members.map((m) => {
+                        const elig = eligibility[m.id];
+                        const isEligible = elig ? elig.eligible : true;
+                        const suggestion = suggestions.find(
+                          (s) => s.membershipId === m.id
+                        );
+                        const atLimit =
+                          !selectedMembers.includes(m.id) &&
+                          selectedMembers.length >= task.requiredHeadcount;
 
-                      return (
-                        <label
-                          key={m.id}
-                          className={`flex items-center gap-2 text-sm ${
-                            !isEligible || atLimit ? "opacity-60" : ""
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedMembers.includes(m.id)}
-                            onChange={() => toggleMemberSelection(m.id)}
-                            disabled={!isEligible || atLimit}
-                          />
-                          <span>{m.user.name || m.user.email}</span>
-                          <span className="text-xs text-muted-foreground">({m.role})</span>
-                          {suggestion && (
-                            <span className="text-xs text-blue-600">
-                              #{suggestion.rank} · {suggestion.score}/100
-                            </span>
-                          )}
-                          {elig && !elig.eligible && (
-                            <span className="text-xs text-red-500">
-                              {elig.checks.availability?.reason ||
-                               elig.checks.scheduling?.reason ||
-                               elig.checks.hoursLimit?.reason ||
-                               "Ineligible"}
-                            </span>
-                          )}
-                          {elig && elig.eligible && !suggestion && (
-                            <span className="text-xs text-green-500">✓ eligible</span>
-                          )}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <Button size="sm" onClick={() => onAssignStaff(task.id)}>
+                        return (
+                          <label
+                            key={m.id}
+                            className={`flex items-center gap-2 text-sm ${
+                              !isEligible || atLimit ? "opacity-60" : ""
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedMembers.includes(m.id)}
+                              onChange={() => toggleMemberSelection(m.id)}
+                              disabled={!isEligible || atLimit}
+                            />
+                            <span>{m.user.name || m.user.email}</span>
+                            <span className="text-xs text-muted-foreground">({m.role})</span>
+                            {suggestion && (
+                              <span className="text-xs text-blue-600">
+                                #{suggestion.rank} · {suggestion.score}/100
+                              </span>
+                            )}
+                            {elig && !elig.eligible && (
+                              <span className="text-xs text-red-500">
+                                {elig.checks.availability?.reason ||
+                                 elig.checks.scheduling?.reason ||
+                                 elig.checks.hoursLimit?.reason ||
+                                 "Ineligible"}
+                              </span>
+                            )}
+                            {elig && elig.eligible && !suggestion && (
+                              <span className="text-xs text-green-500">✓ eligible</span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={() => onAssignStaff(task.id)}
+                    disabled={loadingEligibility}
+                  >
                     Confirm Assignment
                   </Button>
                 </CardContent>

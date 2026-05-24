@@ -68,6 +68,8 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<Record<string, any>>({});
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -107,7 +109,11 @@ export default function TasksPage() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
       const data = await res.json();
-      setMembers(data.filter((m: Member) => m.status === "active"));
+      setMembers(
+        data.filter(
+          (m: Member) => m.status === "active" && m.role !== "company_admin"
+        )
+      );
     } catch {}
   }
 
@@ -123,6 +129,29 @@ export default function TasksPage() {
       }
       setEligibility(map);
     } catch {}
+  }
+
+  async function fetchSuggestions(taskId: string) {
+    setLoadingSuggestions(true);
+    setSuggestions([]);
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/suggest`
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setSuggestions(data);
+        // Auto-select the top recommended staff
+        const topIds = data
+          .slice(0, tasks.find((t) => t.id === taskId)?.requiredHeadcount || 1)
+          .map((s: any) => s.membershipId);
+        setSelectedMembers(topIds);
+      }
+    } catch {
+      setError("Failed to get AI suggestions");
+    } finally {
+      setLoadingSuggestions(false);
+    }
   }
 
   async function onCreateTask(event: React.FormEvent<HTMLFormElement>) {
@@ -656,11 +685,53 @@ export default function TasksPage() {
               {/* Assign staff panel */}
               {assigningTaskId === task.id && (
                 <CardContent>
-                  <p className="mb-2 text-sm font-medium">Select staff to assign</p>
+                  <div className="mb-3 flex items-center gap-3">
+                    <p className="text-sm font-medium">Select staff to assign</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fetchSuggestions(task.id)}
+                      disabled={loadingSuggestions}
+                    >
+                      {loadingSuggestions ? "Getting suggestions..." : "✨ AI Suggest"}
+                    </Button>
+                  </div>
+
+                  {/* AI Suggestions */}
+                  {suggestions.length > 0 && (
+                    <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3">
+                      <p className="mb-2 text-sm font-medium text-blue-800">
+                        AI Recommendations
+                      </p>
+                      <div className="space-y-2">
+                        {suggestions.map((s) => {
+                          const member = members.find(
+                            (m) => m.id === s.membershipId
+                          );
+                          const name = member?.user.name || member?.user.email || "Unknown";
+                          return (
+                            <div key={s.membershipId} className="text-sm">
+                              <span className="font-medium text-blue-700">
+                                #{s.rank} {name}
+                              </span>
+                              {" · "}
+                              <span>Score: {s.score}/100</span>
+                              {" · "}
+                              <span className="text-blue-600">{s.explanation}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mb-3 space-y-1">
                     {members.map((m) => {
                       const elig = eligibility[m.id];
                       const isEligible = elig ? elig.eligible : true;
+                      const suggestion = suggestions.find(
+                        (s) => s.membershipId === m.id
+                      );
 
                       return (
                         <label
@@ -676,6 +747,11 @@ export default function TasksPage() {
                           />
                           <span>{m.user.name || m.user.email}</span>
                           <span className="text-xs text-muted-foreground">({m.role})</span>
+                          {suggestion && (
+                            <span className="text-xs text-blue-600">
+                              #{suggestion.rank} · {suggestion.score}/100
+                            </span>
+                          )}
                           {elig && !elig.eligible && (
                             <span className="text-xs text-red-500">
                               {elig.checks.availability?.reason ||
@@ -684,7 +760,7 @@ export default function TasksPage() {
                                "Ineligible"}
                             </span>
                           )}
-                          {elig && elig.eligible && (
+                          {elig && elig.eligible && !suggestion && (
                             <span className="text-xs text-green-500">✓ eligible</span>
                           )}
                         </label>

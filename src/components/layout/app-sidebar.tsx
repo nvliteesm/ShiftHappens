@@ -61,11 +61,13 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         label: "Settings",
       });
     }
-    // All members can manage their own availability and view tasks
-    links.push({
-      href: `/org/${orgId}/availability`,
-      label: "My Availability",
-    });
+    // Staff and managers can manage their own availability
+    if (role === "staff" || role === "manager") {
+      links.push({
+        href: `/org/${orgId}/availability`,
+        label: "My Availability",
+      });
+    }
     if (role === "staff") {
       links.push({
         href: `/org/${orgId}/my-tasks`,

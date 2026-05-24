@@ -24,6 +24,7 @@ interface Department {
   id: string;
   name: string;
   description: string | null;
+  color: string | null;
   _count: { departmentMemberships: number };
 }
 
@@ -36,7 +37,6 @@ export default function DepartmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch departments on load
   useEffect(() => {
     fetchDepartments();
   }, [orgId]);
@@ -65,7 +65,8 @@ export default function DepartmentsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: formData.get("name"),
-          description: formData.get("description"),
+          description: formData.get("description") || undefined,
+          color: formData.get("color") || undefined,
         }),
       });
 
@@ -101,7 +102,8 @@ export default function DepartmentsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: formData.get("name"),
-            description: formData.get("description"),
+            description: formData.get("description") || undefined,
+            color: formData.get("color") || undefined,
           }),
         }
       );
@@ -176,6 +178,21 @@ export default function DepartmentsPage() {
                 <Label htmlFor="create-desc">Description</Label>
                 <Input id="create-desc" name="description" />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="create-color">Color</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="create-color"
+                    name="color"
+                    type="color"
+                    defaultValue="#3B82F6"
+                    className="h-10 w-14 cursor-pointer p-1"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Used in calendar view
+                  </span>
+                </div>
+              </div>
               <Button type="submit">Create</Button>
             </CardContent>
           </form>
@@ -209,6 +226,20 @@ export default function DepartmentsPage() {
                         defaultValue={dept.description || ""}
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Color</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          name="color"
+                          type="color"
+                          defaultValue={dept.color || "#3B82F6"}
+                          className="h-10 w-14 cursor-pointer p-1"
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          Used in calendar view
+                        </span>
+                      </div>
+                    </div>
                     <div className="flex gap-2">
                       <Button type="submit" size="sm">
                         Save
@@ -228,11 +259,17 @@ export default function DepartmentsPage() {
                 <>
                   <CardHeader>
                     <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle>{dept.name}</CardTitle>
-                        {dept.description && (
-                          <CardDescription>{dept.description}</CardDescription>
-                        )}
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="h-4 w-4 rounded-full"
+                          style={{ backgroundColor: dept.color || "#94A3B8" }}
+                        />
+                        <div>
+                          <CardTitle>{dept.name}</CardTitle>
+                          {dept.description && (
+                            <CardDescription>{dept.description}</CardDescription>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2">
                         <Button

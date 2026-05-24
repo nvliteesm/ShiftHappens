@@ -62,9 +62,9 @@ async function main() {
   // Create departments
   const departments = [];
   const deptNames = [
-    { name: "Kitchen", description: "Food preparation and cooking" },
-    { name: "Bar", description: "Beverage service and cocktails" },
-    { name: "Front of House", description: "Guest service, hosting, and dining room" },
+    { name: "Kitchen", description: "Food preparation and cooking", color: "#EF4444" },
+    { name: "Bar", description: "Beverage service and cocktails", color: "#3B82F6" },
+    { name: "Front of House", description: "Guest service, hosting, and dining room", color: "#10B981" },
   ];
 
   for (const dept of deptNames) {
@@ -72,7 +72,11 @@ async function main() {
       where: { organizationId_name: { organizationId: orgId, name: dept.name } },
     });
     if (existing) {
-      departments.push(existing);
+      await prisma.department.update({
+        where: { id: existing.id },
+        data: { color: dept.color },
+      });
+      departments.push({ ...existing, color: dept.color });
     } else {
       const created = await prisma.department.create({
         data: { ...dept, organizationId: orgId },

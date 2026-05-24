@@ -15,12 +15,14 @@ export class DepartmentRepository {
     name: string;
     description?: string;
     organizationId: string;
+    color?: string;
   }) {
     return prisma.department.create({
       data: {
         name: data.name,
         description: data.description,
         organizationId: data.organizationId,
+        color: data.color,
       },
     });
   }
@@ -55,7 +57,7 @@ export class DepartmentRepository {
   }
 
   /** Updates a department's name and/or description */
-  async update(id: string, data: { name?: string; description?: string }) {
+  async update(id: string, data: { name?: string; description?: string; color?: string }) {
     return prisma.department.update({
       where: { id },
       data,

@@ -12,6 +12,7 @@ import { OrganizationService } from "@/services/organization.service";
 import { DepartmentService } from "@/services/department.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { TaskService } from "@/services/task.service";
+import { DashboardCharts } from "@/components/dashboard/dashboard-charts";
 import {
   Card,
   CardContent,
@@ -136,6 +137,11 @@ export default async function DashboardPage() {
           </Card>
         </div>
       </div>
+
+      {/* Reporting charts — admin and manager only */}
+      {(role === "company_admin" || role === "manager") && (
+        <DashboardCharts orgId={org.id} />
+      )}
 
       {/* Departments */}
       {departments.length > 0 && (

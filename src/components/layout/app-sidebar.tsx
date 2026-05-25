@@ -84,7 +84,7 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
   links.push({ href: "/settings/profile", label: "Profile" });
 
   return (
-    <aside className="flex w-64 flex-col border-r bg-gray-50 p-4">
+    <aside className="flex w-64 flex-col border-r bg-gray-50 p-4 sticky top-0 h-screen overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-lg font-bold">Smart Task Allocation</h1>
       </div>

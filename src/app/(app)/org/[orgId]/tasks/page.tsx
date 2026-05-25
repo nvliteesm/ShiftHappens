@@ -72,6 +72,8 @@ export default function TasksPage() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingEligibility, setLoadingEligibility] = useState(false);
+  const [naturalInput, setNaturalInput] = useState("");
+  const [parsing, setParsing] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -161,6 +163,59 @@ export default function TasksPage() {
       setError("Failed to get AI suggestions");
     } finally {
       setLoadingSuggestions(false);
+    }
+  }
+
+  async function onParseNaturalLanguage() {
+    if (!naturalInput.trim()) return;
+    setParsing(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/tasks/parse`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: naturalInput }),
+      });
+
+      if (!res.ok) {
+        setError("Failed to parse task description");
+        return;
+      }
+
+      const parsed = await res.json();
+
+      setShowCreate(true);
+      setNaturalInput("");
+
+      setTimeout(() => {
+        const form = document.querySelector("form") as HTMLFormElement;
+        if (!form) return;
+
+        const titleInput = form.querySelector('[name="title"]') as HTMLInputElement;
+        const descInput = form.querySelector('[name="description"]') as HTMLTextAreaElement;
+        const deptSelect = form.querySelector('[name="departmentId"]') as HTMLSelectElement;
+        const prioritySelect = form.querySelector('[name="priority"]') as HTMLSelectElement;
+        const headcountInput = form.querySelector('[name="requiredHeadcount"]') as HTMLInputElement;
+        const startInput = form.querySelector('[name="scheduledStart"]') as HTMLInputElement;
+        const endInput = form.querySelector('[name="scheduledEnd"]') as HTMLInputElement;
+
+        if (titleInput) titleInput.value = parsed.title || "";
+        if (descInput) descInput.value = parsed.description || "";
+        if (deptSelect && parsed.departmentId) deptSelect.value = parsed.departmentId;
+        if (prioritySelect) prioritySelect.value = parsed.priority || "medium";
+        if (headcountInput) headcountInput.value = String(parsed.requiredHeadcount || 1);
+        if (startInput && parsed.scheduledStart) {
+          startInput.value = parsed.scheduledStart.slice(0, 16);
+        }
+        if (endInput && parsed.scheduledEnd) {
+          endInput.value = parsed.scheduledEnd.slice(0, 16);
+        }
+      }, 100);
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setParsing(false);
     }
   }
 
@@ -388,6 +443,26 @@ export default function TasksPage() {
         <h2 className="text-2xl font-bold">Tasks</h2>
         <Button onClick={() => setShowCreate(!showCreate)}>
           {showCreate ? "Cancel" : "Create Task"}
+        </Button>
+      </div>
+
+      {/* Natural language task creation */}
+      <div className="mb-4 flex gap-2">
+        <Input
+          placeholder='Try: "I need 2 kitchen staff tomorrow morning for prep"'
+          value={naturalInput}
+          onChange={(e) => setNaturalInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onParseNaturalLanguage();
+          }}
+          className="flex-1"
+        />
+        <Button
+          variant="outline"
+          onClick={onParseNaturalLanguage}
+          disabled={parsing || !naturalInput.trim()}
+        >
+          {parsing ? "Parsing..." : "✨ AI Create"}
         </Button>
       </div>
 

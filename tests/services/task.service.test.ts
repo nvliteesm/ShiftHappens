@@ -39,6 +39,14 @@ beforeEach(async () => {
   );
   orgId = org.id;
 
+  // Ensure require_acceptance mode for assignment tests
+  await prisma.companySettings.create({
+    data: {
+      organizationId: orgId,
+      taskAcceptanceMode: "require_acceptance",
+    },
+  });
+
   const dept = await deptRepo.create({
     name: "Kitchen",
     organizationId: orgId,
@@ -181,6 +189,26 @@ describe("TaskService", () => {
       expect(assignments).toHaveLength(1);
       expect(assignments[0].membershipId).toBe(staffMembershipId);
       expect(assignments[0].status).toBe("pending");
+    });
+
+    it("auto-accepts assignments when taskAcceptanceMode is auto_accept", async () => {
+      // Update settings to auto_accept
+      await prisma.companySettings.updateMany({
+        where: { organizationId: orgId },
+        data: { taskAcceptanceMode: "auto_accept" },
+      });
+
+      const task = await taskService.create({ title: "Auto test" }, orgId, userId);
+
+      const assignments = await taskService.assignStaff(
+        task.id,
+        orgId,
+        [staffMembershipId],
+        userId
+      );
+
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].status).toBe("accepted");
     });
 
     it("throws if exceeding required headcount", async () => {

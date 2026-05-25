@@ -13,6 +13,7 @@
  */
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 
@@ -20,7 +21,7 @@ export class TaskService {
   private taskRepo = new TaskRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
-
+  private settingsRepo = new SettingsRepository();
   /**
    * Creates a new task in an organization.
    * Validates that end time is after start time if both are provided.
@@ -136,6 +137,10 @@ export class TaskService {
       }
     }
 
+    // Check task acceptance mode
+    const settings = await this.settingsRepo.getOrCreate(organizationId);
+    const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
+
     // Create assignments
     const assignments = [];
     for (const membId of membershipIds) {
@@ -143,6 +148,7 @@ export class TaskService {
         taskId,
         membershipId: membId,
         assignedById,
+        status: assignmentStatus,
       });
       assignments.push(assignment);
     }

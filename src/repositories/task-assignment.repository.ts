@@ -16,13 +16,14 @@ export class TaskAssignmentRepository {
     taskId: string;
     membershipId: string;
     assignedById: string;
+    status?: string;
   }) {
     return prisma.taskAssignment.create({
       data: {
         taskId: data.taskId,
         membershipId: data.membershipId,
         assignedById: data.assignedById,
-        status: "pending",
+        status: data.status ?? "pending",
       },
     });
   }

@@ -7,6 +7,9 @@
  * 
  * All queries are org-scoped for multi-tenant isolation.
  * Security: Prisma parameterized queries prevent SQL injection.
+ * 
+ * Note: Every department select MUST include color: true
+ * for calendar view and any UI that shows department colors.
  */
 import { prisma } from "@/lib/prisma";
 
@@ -41,7 +44,7 @@ export class TaskRepository {
       },
       include: {
         assignments: true,
-        department: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },
     });
@@ -62,7 +65,7 @@ export class TaskRepository {
             assignedBy: { select: { id: true, name: true } },
           },
         },
-        department: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },
     });
@@ -72,14 +75,7 @@ export class TaskRepository {
    * Lists tasks for an organization with optional filters.
    * Supports filtering by status, departmentId, and priority.
    */
-  async findByOrganizationId(
-    organizationId: string,
-    filters?: {
-      status?: string;
-      departmentId?: string;
-      priority?: string;
-    }
-  ) {
+  async findByOrganizationId(organizationId: string, filters?: { status?: string; departmentId?: string; priority?: string }) {
     return prisma.task.findMany({
       where: {
         organizationId,
@@ -88,17 +84,15 @@ export class TaskRepository {
         ...(filters?.priority && { priority: filters.priority }),
       },
       include: {
+        department: { select: { id: true, name: true, color: true } },
+        createdBy: { select: { id: true, name: true } },
         assignments: {
           include: {
             membership: {
-              include: {
-                user: { select: { id: true, name: true } },
-              },
+              include: { user: { select: { id: true, name: true } } },
             },
           },
         },
-        department: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -118,6 +112,7 @@ export class TaskRepository {
             },
           },
         },
+        department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -143,7 +138,7 @@ export class TaskRepository {
       data,
       include: {
         assignments: true,
-        department: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true, color: true } },
         createdBy: { select: { id: true, name: true } },
       },
     });
@@ -179,7 +174,7 @@ export class TaskRepository {
         ...(excludeTaskId && { id: { not: excludeTaskId } }),
       },
       include: {
-        department: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true, color: true } },
       },
     });
   }

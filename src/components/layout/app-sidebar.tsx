@@ -46,6 +46,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         href: `/org/${orgId}/certifications`,
         label: "Certifications",
       });
+      links.push({
+        href: `/org/${orgId}/calendar`,
+        label: "Calendar",
+      });
     }
     if (role === "company_admin") {
       links.push({

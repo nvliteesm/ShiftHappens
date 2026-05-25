@@ -31,6 +31,7 @@ export class DepartmentService {
     return this.deptRepo.create({
       name: input.name,
       description: input.description,
+      color: input.color,
       organizationId,
     });
   }
@@ -68,6 +69,7 @@ export class DepartmentService {
     return this.deptRepo.update(departmentId, {
       name: input.name,
       description: input.description,
+      color: input.color,
     });
   }
 

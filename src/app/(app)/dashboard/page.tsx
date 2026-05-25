@@ -2,7 +2,7 @@
  * Dashboard Page (Boundary Layer)
  * 
  * Main landing page after login. Shows organization overview
- * including departments, members, and task counts.
+ * with AI-powered insights, proactive alerts, and task counts.
  * BCE compliant: all data fetched through services.
  */
 import { redirect } from "next/navigation";
@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DashboardInsights } from "@/components/dashboard/dashboard-insights";
 
 const orgService = new OrganizationService();
 const deptService = new DepartmentService();
@@ -39,14 +40,21 @@ export default async function DashboardPage() {
   const members = await membershipRepo.findByOrgId(org.id);
   const activeMembers = members.filter((m) => m.status === "active");
   const taskCounts = await taskService.getTaskCounts(org.id);
+  const role = org.memberships[0]?.role;
 
   return (
     <div>
       <h2 className="mb-2 text-2xl font-bold">{org.name}</h2>
       <p className="mb-6 text-muted-foreground">
-        Role: {org.memberships[0]?.role}
+        Role: {role}
       </p>
 
+      {/* AI Insights — admin and manager only */}
+      {(role === "company_admin" || role === "manager") && (
+        <DashboardInsights orgId={org.id} />
+      )}
+
+      {/* Overview cards */}
       <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardHeader>
@@ -86,6 +94,7 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
+      {/* Departments list */}
       {departments.length > 0 && (
         <div>
           <h3 className="mb-4 text-lg font-semibold">Departments</h3>
@@ -93,7 +102,13 @@ export default async function DashboardPage() {
             {departments.map((dept) => (
               <Card key={dept.id}>
                 <CardHeader>
-                  <CardTitle className="text-base">{dept.name}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-3 w-3 rounded-full"
+                      style={{ backgroundColor: (dept as any).color || "#94A3B8" }}
+                    />
+                    <CardTitle className="text-base">{dept.name}</CardTitle>
+                  </div>
                   {dept.description && (
                     <CardDescription>{dept.description}</CardDescription>
                   )}

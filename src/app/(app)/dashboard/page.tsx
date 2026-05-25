@@ -2,7 +2,8 @@
  * Dashboard Page (Boundary Layer)
  * 
  * Main landing page after login. Shows organization overview
- * with AI-powered insights, proactive alerts, and task counts.
+ * with AI-powered insights, task counts, team breakdown,
+ * and department list.
  * BCE compliant: all data fetched through services.
  */
 import { redirect } from "next/navigation";
@@ -54,49 +55,91 @@ export default async function DashboardPage() {
         <DashboardInsights orgId={org.id} />
       )}
 
-      {/* Overview cards */}
-      <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <Card>
-          <CardHeader>
-            <CardDescription>Departments</CardDescription>
-            <CardTitle className="text-3xl">{departments.length}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Active members</CardDescription>
-            <CardTitle className="text-3xl">{activeMembers.length}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Total tasks</CardDescription>
-            <CardTitle className="text-3xl">{taskCounts.total}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Open</CardDescription>
-            <CardTitle className="text-3xl">{taskCounts.open}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>In progress</CardDescription>
-            <CardTitle className="text-3xl">{taskCounts.in_progress}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardDescription>Completed</CardDescription>
-            <CardTitle className="text-3xl">{taskCounts.completed}</CardTitle>
-          </CardHeader>
-        </Card>
+      {/* Tasks overview */}
+      <div className="mb-8">
+        <h3 className="mb-4 text-lg font-semibold">Tasks</h3>
+        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <Card>
+            <CardHeader>
+              <CardDescription>Total tasks</CardDescription>
+              <CardTitle className="text-3xl">{taskCounts.total}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Open</CardDescription>
+              <CardTitle className="text-3xl">{taskCounts.open}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>In progress</CardDescription>
+              <CardTitle className="text-3xl">{taskCounts.in_progress}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Completed</CardDescription>
+              <CardTitle className="text-3xl">{taskCounts.completed}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Cancelled</CardDescription>
+              <CardTitle className="text-3xl">{taskCounts.cancelled}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
       </div>
 
-      {/* Departments list */}
+      {/* Members overview */}
+      <div className="mb-8">
+        <h3 className="mb-4 text-lg font-semibold">Members</h3>
+        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <Card>
+            <CardHeader>
+              <CardDescription>Total members</CardDescription>
+              <CardTitle className="text-3xl">{activeMembers.length}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Company Admins</CardDescription>
+              <CardTitle className="text-3xl">
+                {activeMembers.filter((m) => m.role === "company_admin").length}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Managers</CardDescription>
+              <CardTitle className="text-3xl">
+                {activeMembers.filter((m) => m.role === "manager").length}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Staff</CardDescription>
+              <CardTitle className="text-3xl">
+                {activeMembers.filter((m) => m.role === "staff").length}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardDescription>Inactive</CardDescription>
+              <CardTitle className="text-3xl">
+                {members.filter((m) => m.status === "inactive").length}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
+
+      {/* Departments */}
       {departments.length > 0 && (
-        <div>
+        <div className="mb-8">
           <h3 className="mb-4 text-lg font-semibold">Departments</h3>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {departments.map((dept) => (

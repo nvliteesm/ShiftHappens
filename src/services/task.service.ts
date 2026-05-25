@@ -185,9 +185,10 @@ export class TaskService {
     };
 
     for (const task of tasks) {
-      if (task.status in counts) {
-        counts[task.status as keyof typeof counts]++;
-      }
+      if (task.status === "open") counts.open++;
+      else if (task.status === "in_progress") counts.in_progress++;
+      else if (task.status === "completed") counts.completed++;
+      else if (task.status === "cancelled") counts.cancelled++;
     }
 
     return counts;

@@ -2,17 +2,14 @@
  * AI Dashboard Service (Control Layer)
  * 
  * Generates AI-powered dashboard insights including:
- * - Natural language workforce summary
- * - Proactive staffing alerts 
- * - Rejection pattern analysis
+ * - Natural language workforce summary (US-67)
+ * - Proactive staffing alerts (US-68)
+ * - Rejection pattern analysis (US-70)
  * 
  * Uses the same AI provider infrastructure (Groq/Gemini/fallback)
  * as the allocation service. All insights are advisory — the
  * admin always has final decision authority.
  */
-import type { AIProvider } from "./ai-provider";
-import { GroqProvider } from "./providers/groq.provider";
-import { GeminiProvider } from "./providers/gemini.provider";
 import { TaskRepository } from "@/repositories/task.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
@@ -24,20 +21,41 @@ interface DashboardInsight {
   rejectionPatterns: { staffName: string; pattern: string }[];
 }
 
+interface DashboardData {
+  activeStaff: number;
+  totalTasks: number;
+  openTasks: number;
+  inProgressTasks: number;
+  unassignedTasks: number;
+  understaffedTasks: { title: string; department: string; required: number; assigned: number; needed: number }[];
+  staffNearLimit: { name: string; hours: number }[];
+  recentRejections: { staffName: string; count: number; reasons: string[] }[];
+  completedToday: number;
+  pendingCertifications: number;
+  departmentCount: number;
+  departments: { name: string; taskCount: number; memberCount: number }[];
+  maxHours: number;
+}
+
 export class AIDashboardService {
-  private providers: AIProvider[];
   private taskRepo = new TaskRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
 
-  constructor() {
-    const primary = process.env.AI_PROVIDER || "groq";
-    if (primary === "gemini") {
-      this.providers = [new GeminiProvider(), new GroqProvider()];
-    } else {
-      this.providers = [new GroqProvider(), new GeminiProvider()];
-    }
-  }
+  /** Shared system prompt used by all AI providers for consistency */
+  private systemPrompt = `You are a workforce management AI assistant. Analyze the organizational data and provide insights.
+You MUST respond with ONLY valid JSON matching this structure:
+{
+  "summary": "A 2-3 sentence natural language overview of today's workforce status",
+  "alerts": [{"type": "warning|info|success", "message": "specific actionable alert"}],
+  "rejectionPatterns": [{"staffName": "name", "pattern": "observed pattern description"}]
+}
+CRITICAL RULES:
+- Be specific with names, numbers, and departments from the provided data ONLY.
+- NEVER invent or hallucinate data. Only reference staff, tasks, and departments mentioned in the input.
+- If there are no rejections in the data, rejectionPatterns MUST be an empty array [].
+- If there are no issues, say so positively. Do not manufacture problems.
+- Maximum 5 alerts. Keep alerts actionable and based on real data.`;
 
   /**
    * Generates a comprehensive dashboard insight by gathering
@@ -55,65 +73,33 @@ export class AIDashboardService {
     }
 
     const prompt = this.buildPrompt(data);
-
-    for (const provider of this.providers) {
-      try {
-        const response = await provider.rankStaff(
-          {
-            title: "__DASHBOARD_INSIGHT__",
-            department: null,
-            priority: "medium",
-            scheduledStart: null,
-            scheduledEnd: null,
-            requiredHeadcount: 0,
-          },
-          []
-        );
-        // rankStaff won't work for this — we need raw completion
-        break;
-      } catch {
-        // Continue to next provider
-      }
-    }
-
-    // Use direct API call for dashboard insights
     return this.callAIForInsights(prompt, data);
   }
 
   /**
-   * Calls the AI API directly for dashboard insights.
-   * Falls back to algorithmic analysis if AI fails.
+   * Calls AI providers in order for dashboard insights.
+   * Falls back to algorithmic analysis if all providers fail.
    */
   private async callAIForInsights(
     prompt: string,
     data: DashboardData
   ): Promise<DashboardInsight> {
-    const apiKey = process.env.GROQ_API_KEY;
+    const groqKey = process.env.GROQ_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
     // Try Groq first
-    if (apiKey) {
+    if (groqKey) {
       try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${apiKey}`,
+            "Authorization": `Bearer ${groqKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [
-              {
-                role: "system",
-                content: `You are a workforce management AI assistant. Analyze the organizational data and provide insights.
-You MUST respond with ONLY valid JSON matching this structure:
-{
-  "summary": "A 2-3 sentence natural language overview of today's workforce status",
-  "alerts": [{"type": "warning|info|success", "message": "specific actionable alert"}],
-  "rejectionPatterns": [{"staffName": "name", "pattern": "observed pattern description"}]
-}
-Be specific with names, numbers, and departments. Keep alerts actionable. Maximum 5 alerts.`,
-              },
+              { role: "system", content: this.systemPrompt },
               { role: "user", content: prompt },
             ],
             temperature: 0,
@@ -142,7 +128,7 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
             body: JSON.stringify({
               contents: [{
                 parts: [{
-                  text: `You are a workforce management AI. Respond with ONLY valid JSON: {"summary": "...", "alerts": [{"type": "warning|info|success", "message": "..."}], "rejectionPatterns": [{"staffName": "...", "pattern": "..."}]}. Be specific.\n\n${prompt}`
+                  text: `${this.systemPrompt}\n\n${prompt}`,
                 }],
               }],
               generationConfig: { temperature: 0, maxOutputTokens: 800 },
@@ -164,6 +150,7 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
     return this.generateAlgorithmicInsights(data);
   }
 
+  /** Parses AI JSON response with fallback to algorithmic analysis */
   private parseInsightResponse(content: string, data: DashboardData): DashboardInsight {
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
@@ -181,11 +168,12 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
 
   /**
    * Generates insights without AI using pure data analysis.
+   * Provides the same data structure as AI but without
+   * natural language flair — factual and rule-based.
    */
   private generateAlgorithmicInsights(data: DashboardData): DashboardInsight {
     const alerts: { type: "warning" | "info" | "success"; message: string }[] = [];
 
-    // Check for unassigned tasks
     if (data.unassignedTasks > 0) {
       alerts.push({
         type: "warning",
@@ -193,7 +181,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       });
     }
 
-    // Check for understaffed tasks
     for (const task of data.understaffedTasks) {
       alerts.push({
         type: "warning",
@@ -201,7 +188,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       });
     }
 
-    // Check for staff approaching hour limits
     for (const staff of data.staffNearLimit) {
       alerts.push({
         type: "warning",
@@ -209,7 +195,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       });
     }
 
-    // Check for pending certifications
     if (data.pendingCertifications > 0) {
       alerts.push({
         type: "info",
@@ -217,7 +202,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       });
     }
 
-    // Check for completed tasks today
     if (data.completedToday > 0) {
       alerts.push({
         type: "success",
@@ -225,13 +209,12 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       });
     }
 
-    // Rejection patterns
+    // Only include rejection patterns when there's real data
     const rejectionPatterns = data.recentRejections.map((r) => ({
       staffName: r.staffName,
       pattern: `Rejected ${r.count} task${r.count > 1 ? "s" : ""} recently. ${r.reasons.length > 0 ? `Common reason: "${r.reasons[0]}"` : ""}`,
     }));
 
-    // Build summary
     const parts: string[] = [];
     parts.push(`You have ${data.totalTasks} active task${data.totalTasks !== 1 ? "s" : ""} across ${data.departmentCount} department${data.departmentCount !== 1 ? "s" : ""} with ${data.activeStaff} staff available.`);
 
@@ -250,6 +233,7 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
     };
   }
 
+  /** Builds the data prompt sent to AI providers */
   private buildPrompt(data: DashboardData): string {
     let prompt = `Analyze this workforce data and provide insights:\n\n`;
     prompt += `ORGANIZATION OVERVIEW:\n`;
@@ -276,12 +260,14 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
     }
 
     if (data.recentRejections.length > 0) {
-      prompt += `RECENT REJECTIONS:\n`;
+      prompt += `RECENT REJECTIONS (last 7 days):\n`;
       for (const r of data.recentRejections) {
         prompt += `- ${r.staffName}: rejected ${r.count} tasks. Reasons: ${r.reasons.join(", ") || "not provided"}\n`;
       }
-      prompt += `\n`;
+    } else {
+      prompt += `RECENT REJECTIONS: None in the last 7 days.\n`;
     }
+    prompt += `\n`;
 
     if (data.pendingCertifications > 0) {
       prompt += `PENDING CERTIFICATIONS: ${data.pendingCertifications} awaiting verification\n\n`;
@@ -309,7 +295,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
     const openTasks = tasks.filter((t) => t.status === "open");
     const inProgressTasks = tasks.filter((t) => t.status === "in_progress");
 
-    // Find unassigned and understaffed tasks
     const unassignedTasks = openTasks.filter((t) => t.assignments.length === 0);
     const understaffedTasks = openTasks
       .filter((t) => t.assignments.length < t.requiredHeadcount && t.assignments.length > 0)
@@ -321,7 +306,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
         needed: t.requiredHeadcount - t.assignments.length,
       }));
 
-    // Check staff hours in last 24h
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const staffNearLimit: { name: string; hours: number }[] = [];
 
@@ -350,7 +334,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       }
     }
 
-    // Recent rejections (last 7 days)
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const rejections = await prisma.taskAssignment.findMany({
       where: {
@@ -365,7 +348,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       },
     });
 
-    // Group rejections by staff
     const rejectionMap: Record<string, { staffName: string; count: number; reasons: string[] }> = {};
     for (const r of rejections) {
       const key = r.membershipId;
@@ -384,7 +366,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
 
     const recentRejections = Object.values(rejectionMap).filter((r) => r.count >= 2);
 
-    // Completed today
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const completedToday = await prisma.taskAssignment.count({
@@ -395,7 +376,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       },
     });
 
-    // Pending certifications
     const pendingCertifications = await prisma.certification.count({
       where: {
         membership: { organizationId },
@@ -403,7 +383,6 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       },
     });
 
-    // Department stats
     const departments = await prisma.department.findMany({
       where: { organizationId },
       include: {
@@ -433,20 +412,4 @@ Be specific with names, numbers, and departments. Keep alerts actionable. Maximu
       maxHours: settings.breakRuleHoursWorked,
     };
   }
-}
-
-interface DashboardData {
-  activeStaff: number;
-  totalTasks: number;
-  openTasks: number;
-  inProgressTasks: number;
-  unassignedTasks: number;
-  understaffedTasks: { title: string; department: string; required: number; assigned: number; needed: number }[];
-  staffNearLimit: { name: string; hours: number }[];
-  recentRejections: { staffName: string; count: number; reasons: string[] }[];
-  completedToday: number;
-  pendingCertifications: number;
-  departmentCount: number;
-  departments: { name: string; taskCount: number; memberCount: number }[];
-  maxHours: number;
 }

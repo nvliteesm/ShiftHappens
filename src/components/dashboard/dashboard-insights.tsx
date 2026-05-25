@@ -3,7 +3,8 @@
  * 
  * Client component that fetches and displays AI-generated
  * workforce insights, proactive alerts, and rejection patterns.
- * Loads asynchronously to not block the main dashboard render.
+ * Auto-loads on mount and caches results. Refresh button
+ * for manual re-query after making changes.
  */
 "use client";
 
@@ -25,8 +26,12 @@ interface Insight {
 
 export function DashboardInsights({ orgId }: { orgId: string }) {
   const [insights, setInsights] = useState<Insight | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchInsights();
+  }, [orgId]);
 
   async function fetchInsights() {
     setLoading(true);
@@ -82,18 +87,31 @@ export function DashboardInsights({ orgId }: { orgId: string }) {
             onClick={fetchInsights}
             disabled={loading}
           >
-            {loading ? "Analyzing..." : insights ? "Refresh" : "Generate Insights"}
+            {loading ? "Analyzing..." : "🔄 Refresh"}
           </Button>
         </div>
       </CardHeader>
 
-      {error && (
+      {/* Loading state */}
+      {loading && !insights && (
+        <CardContent>
+          <div className="animate-pulse space-y-3">
+            <div className="h-16 rounded-md bg-blue-50" />
+            <div className="h-10 rounded-md bg-gray-50" />
+            <div className="h-10 rounded-md bg-gray-50" />
+          </div>
+        </CardContent>
+      )}
+
+      {/* Error state */}
+      {error && !loading && (
         <CardContent>
           <p className="text-sm text-red-500">{error}</p>
         </CardContent>
       )}
 
-      {insights && (
+      {/* Insights content */}
+      {insights && !loading && (
         <CardContent className="space-y-4">
           {/* AI Summary */}
           <div className="rounded-md border border-blue-200 bg-blue-50 p-4">

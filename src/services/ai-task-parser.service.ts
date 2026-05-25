@@ -93,7 +93,7 @@ Respond with ONLY valid JSON:
 }
 
 RULES:
-- Match department names from the provided list. If no match, set departmentName to null.
+- Match department names EXACTLY from the provided list. If the user's text does not clearly reference one of these exact departments (${deptNames}), set departmentName to null. Do NOT guess or pick the closest match.
 - Infer priority from urgency words (ASAP/urgent = urgent, important = high, default = medium).
 - If "tomorrow" is mentioned, use tomorrow's date.
 - If "morning" is mentioned, use 07:00-12:00. "afternoon" = 12:00-17:00. "evening" = 17:00-22:00.

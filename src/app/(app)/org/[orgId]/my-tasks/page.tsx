@@ -349,7 +349,7 @@ export default function MyTasksPage() {
                     </span>
                   </CardTitle>
                   <CardDescription>
-                    Reason: {a.rejectionReason?.replace(/_/g, " ")}
+                    Reason: {a.rejectionReason?.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
                     {a.rejectionNotes && ` — ${a.rejectionNotes}`}
                   </CardDescription>
                 </CardHeader>

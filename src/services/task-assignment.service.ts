@@ -15,9 +15,11 @@
  * accept, reject, clockIn, and clockOut actions.
  */
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 
 export class TaskAssignmentService {
   private assignmentRepo = new TaskAssignmentRepository();
+  private auditService = new AuditLogService();
 
   /**
    * Accepts a pending task assignment.
@@ -35,7 +37,18 @@ export class TaskAssignmentService {
       throw new Error("Can only accept pending assignments");
     }
 
-    return this.assignmentRepo.updateStatus(assignmentId, "accepted");
+    const result = await this.assignmentRepo.updateStatus(assignmentId, "accepted");
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_ACCEPTED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle: assignment.task.title },
+    });
+
+    return result;
   }
 
   /**
@@ -54,7 +67,18 @@ export class TaskAssignmentService {
       throw new Error("Can only reject pending assignments");
     }
 
-    return this.assignmentRepo.reject(assignmentId, reason, notes);
+    const result = await this.assignmentRepo.reject(assignmentId, reason, notes);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_REJECTED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { reason, notes, taskTitle: assignment.task.title },
+    });
+
+    return result;
   }
 
   /**
@@ -77,7 +101,18 @@ export class TaskAssignmentService {
       throw new Error("Already clocked in");
     }
 
-    return this.assignmentRepo.clockIn(assignmentId);
+    const result = await this.assignmentRepo.clockIn(assignmentId);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_CLOCKED_IN,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle: assignment.task.title },
+    });
+
+    return result;
   }
 
   /**
@@ -100,6 +135,17 @@ export class TaskAssignmentService {
       throw new Error("Already clocked out");
     }
 
-    return this.assignmentRepo.clockOut(assignmentId);
+    const result = await this.assignmentRepo.clockOut(assignmentId);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_CLOCKED_OUT,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle: assignment.task.title },
+    });
+
+    return result;
   }
 }

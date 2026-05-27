@@ -1,0 +1,93 @@
+/**
+ * Audit Log Service (Control Layer)
+ * 
+ * Provides a simple interface for recording audit events
+ * throughout the application. Fire-and-forget — audit logging
+ * should never block or fail the primary operation.
+ * 
+ * Usage: await auditService.log({ ... })
+ * The log method catches its own errors to prevent
+ * audit failures from breaking business operations.
+ */
+import { AuditLogRepository } from "@/repositories/audit-log.repository";
+
+const ACTIONS = {
+  // Tasks
+  TASK_CREATED: "task.created",
+  TASK_UPDATED: "task.updated",
+  TASK_DELETED: "task.deleted",
+  TASK_ASSIGNED: "task.assigned",
+  TASK_UNASSIGNED: "task.unassigned",
+  // Assignments
+  ASSIGNMENT_ACCEPTED: "assignment.accepted",
+  ASSIGNMENT_REJECTED: "assignment.rejected",
+  ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",
+  ASSIGNMENT_CLOCKED_OUT: "assignment.clocked_out",
+  // Members
+  MEMBER_INVITED: "member.invited",
+  MEMBER_ROLE_CHANGED: "member.role_changed",
+  MEMBER_ACTIVATED: "member.activated",
+  MEMBER_DEACTIVATED: "member.deactivated",
+  // Departments
+  DEPARTMENT_CREATED: "department.created",
+  DEPARTMENT_UPDATED: "department.updated",
+  DEPARTMENT_DELETED: "department.deleted",
+  // Settings
+  SETTINGS_UPDATED: "settings.updated",
+  // Roles
+  ROLE_CREATED: "role.created",
+  ROLE_UPDATED: "role.updated",
+  ROLE_DELETED: "role.deleted",
+  // Auth
+  USER_REGISTERED: "user.registered",
+  USER_LOGGED_IN: "user.logged_in",
+} as const;
+
+export type AuditAction = (typeof ACTIONS)[keyof typeof ACTIONS];
+
+export { ACTIONS };
+
+export class AuditLogService {
+  private auditRepo = new AuditLogRepository();
+
+  /**
+   * Records an audit event. Fire-and-forget — errors are
+   * logged to console but never thrown to the caller.
+   */
+  async log(params: {
+    organizationId: string;
+    userId?: string;
+    action: AuditAction;
+    entityType: string;
+    entityId?: string;
+    details?: Record<string, unknown>;
+    ipAddress?: string;
+  }) {
+    try {
+      await this.auditRepo.create(params);
+    } catch (error) {
+      console.error("[AuditLog Error]", error);
+    }
+  }
+
+  /** Retrieves audit logs with filters */
+  async getLogs(
+    organizationId: string,
+    filters?: {
+      action?: string;
+      entityType?: string;
+      userId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    },
+    limit = 50,
+    offset = 0
+  ) {
+    const [logs, total] = await Promise.all([
+      this.auditRepo.findByOrganizationId(organizationId, filters, limit, offset),
+      this.auditRepo.countByOrganizationId(organizationId, filters),
+    ]);
+
+    return { logs, total, limit, offset };
+  }
+}

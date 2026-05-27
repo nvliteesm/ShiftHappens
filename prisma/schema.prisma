@@ -17,14 +17,15 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  accounts        Account[]
-  sessions        Session[]
-  memberships     Membership[]
-  invitationsSent InvitationToken[]
-  tasksCreated    Task[]
-  taskAssignedBy  TaskAssignment[] @relation("AssignedByUser")
+  accounts               Account[]
+  sessions               Session[]
+  memberships            Membership[]
+  invitationsSent        InvitationToken[]
+  tasksCreated           Task[]
+  taskAssignedBy         TaskAssignment[] @relation("AssignedByUser")
   certificationsVerified Certification[]        @relation("CertificationVerifier")
   eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
+  auditLogs              AuditLog[]
 }
 
 model Organization {
@@ -45,6 +46,7 @@ model Organization {
   roles            Role[]
   companySettings  CompanySettings?
   tasks            Task[]
+  auditLogs        AuditLog[]
 }
 
 model Membership {
@@ -333,4 +335,23 @@ model EligibilityOverride {
 
   @@index([taskId])
   @@index([membershipId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String
+  entityType     String
+  entityId       String?
+  details        Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([action])
+  @@index([entityType, entityId])
 }

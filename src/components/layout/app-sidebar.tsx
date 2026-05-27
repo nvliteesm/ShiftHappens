@@ -64,6 +64,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         href: `/org/${orgId}/settings`,
         label: "Settings",
       });
+      links.push({
+        href: `/org/${orgId}/audit-log`,
+        label: "Audit Log",
+      });
     }
     // Staff and managers can manage their own availability
     if (role === "staff" || role === "manager") {

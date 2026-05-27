@@ -16,17 +16,20 @@ import { TaskAssignmentRepository } from "@/repositories/task-assignment.reposit
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
+  private auditService = new AuditLogService();
+
   /**
    * Creates a new task in an organization.
    * Validates that end time is after start time if both are provided.
    */
-  async create(input: CreateTaskInput, organizationId: string, createdById: string) {
+  async create(input: CreateTaskInput, orgId: string, userId: string) {
     if (input.scheduledStart && input.scheduledEnd) {
       const start = new Date(input.scheduledStart);
       const end = new Date(input.scheduledEnd);
@@ -35,10 +38,10 @@ export class TaskService {
       }
     }
 
-    return this.taskRepo.create({
+    const task = await this.taskRepo.create({
       title: input.title,
       description: input.description,
-      organizationId,
+      organizationId: orgId,
       departmentId: input.departmentId,
       requiredHeadcount: input.requiredHeadcount,
       priority: input.priority,
@@ -46,8 +49,19 @@ export class TaskService {
       scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
       isRecurring: input.isRecurring,
       recurringPattern: input.recurringPattern,
-      createdById,
+      createdById: userId,
     });
+
+    await this.auditService.log({
+      organizationId: orgId,
+      userId,
+      action: ACTIONS.TASK_CREATED,
+      entityType: "task",
+      entityId: task.id,
+      details: { title: task.title, department: task.departmentId },
+    });
+
+    return task;
   }
 
   /** Lists tasks for an organization with optional filters */
@@ -64,11 +78,11 @@ export class TaskService {
   }
 
   /** Updates a task's fields */
-  async update(taskId: string, organizationId: string, input: UpdateTaskInput) {
+  async update(taskId: string, orgId: string, input: UpdateTaskInput) {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
-    return this.taskRepo.update(taskId, {
+    const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
       departmentId: input.departmentId,
@@ -78,14 +92,32 @@ export class TaskService {
       scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : undefined,
       scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
     });
+
+    await this.auditService.log({
+      organizationId: orgId,
+      action: ACTIONS.TASK_UPDATED,
+      entityType: "task",
+      entityId: taskId,
+      details: input,
+    });
+
+    return updated;
   }
 
   /** Deletes a task */
-  async delete(taskId: string, organizationId: string) {
+  async delete(taskId: string, orgId: string) {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
-    return this.taskRepo.delete(taskId);
+    await this.taskRepo.delete(taskId);
+
+    await this.auditService.log({
+      organizationId: orgId,
+      action: ACTIONS.TASK_DELETED,
+      entityType: "task",
+      entityId: taskId,
+      details: { title: task.title },
+    });
   }
 
   /**
@@ -153,6 +185,15 @@ export class TaskService {
       assignments.push(assignment);
     }
 
+    await this.auditService.log({
+      organizationId,
+      userId: assignedById,
+      action: ACTIONS.TASK_ASSIGNED,
+      entityType: "task",
+      entityId: taskId,
+      details: { membershipIds, status: assignmentStatus },
+    });
+
     return assignments;
   }
 
@@ -165,7 +206,16 @@ export class TaskService {
       throw new Error("Cannot cancel a completed assignment");
     }
 
-    return this.assignmentRepo.cancel(assignmentId);
+    const result = await this.assignmentRepo.cancel(assignmentId);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      action: ACTIONS.TASK_UNASSIGNED,
+      entityType: "assignment",
+      entityId: assignmentId,
+    });
+
+    return result;
   }
 
   /** Gets tasks for a specific department (manager view) */

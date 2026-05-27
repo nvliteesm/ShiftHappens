@@ -96,12 +96,13 @@ export class TaskAssignmentRepository {
   }
 
   /** Rejects an assignment with a required reason */
-  async reject(id: string, rejectionReason: string) {
+  async reject(id: string, reason: string, notes?: string) {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
         status: "rejected",
-        rejectionReason,
+        rejectionReason: reason,
+        rejectionNotes: notes,
       },
     });
   }

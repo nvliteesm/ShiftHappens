@@ -145,9 +145,10 @@ describe("TaskAssignmentRepository", () => {
     it("rejects an assignment with reason", async () => {
       const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
 
-      const updated = await assignmentRepo.reject(assignment.id, "Schedule conflict");
+      const updated = await assignmentRepo.reject(assignment.id, "schedule_conflict", "Have class until 3pm");
       expect(updated.status).toBe("rejected");
-      expect(updated.rejectionReason).toBe("Schedule conflict");
+      expect(updated.rejectionReason).toBe("schedule_conflict");
+      expect(updated.rejectionNotes).toBe("Have class until 3pm");
     });
   });
 
@@ -183,7 +184,7 @@ describe("TaskAssignmentRepository", () => {
 
       await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
       const a2 = await assignmentRepo.create({ taskId, membershipId: membership2.id, assignedById: userId });
-      await assignmentRepo.reject(a2.id, "Cannot make it");
+      await assignmentRepo.reject(a2.id, "personal_reasons");
 
       const count = await assignmentRepo.countActiveByTaskId(taskId);
       expect(count).toBe(1);

@@ -443,11 +443,11 @@ async function main() {
   });
 
   const rejectionData = [
-    { staffIndex: 0, taskIndex: 0, reason: "Schedule conflict with school" },
-    { staffIndex: 0, taskIndex: 1, reason: "Too many hours this week" },
-    { staffIndex: 0, taskIndex: 2, reason: "Schedule conflict with school" },
-    { staffIndex: 1, taskIndex: 0, reason: "Feeling unwell" },
-    { staffIndex: 1, taskIndex: 1, reason: "Transport issues" },
+    { staffIndex: 0, taskIndex: 0, reason: "schedule_conflict", notes: "Have class until 3pm" },
+    { staffIndex: 0, taskIndex: 1, reason: "exceeds_preferred_hours", notes: "Already worked 35hrs this week" },
+    { staffIndex: 0, taskIndex: 2, reason: "schedule_conflict", notes: "Exam preparation" },
+    { staffIndex: 1, taskIndex: 0, reason: "feeling_unwell" },
+    { staffIndex: 1, taskIndex: 1, reason: "transport_issues", notes: "Bus route cancelled" },
   ];
 
   for (const rej of rejectionData) {
@@ -468,6 +468,7 @@ async function main() {
         assignedById: adminUser!.id,
         status: "rejected",
         rejectionReason: rej.reason,
+        rejectionNotes: rej.notes,
       },
     });
   }

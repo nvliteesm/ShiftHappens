@@ -110,17 +110,19 @@ describe("TaskAssignmentService", () => {
       const rejected = await assignmentService.reject(
         assignment.id,
         membershipId,
-        "Schedule conflict"
+        "schedule_conflict",
+        "Have class until 3pm"
       );
       expect(rejected.status).toBe("rejected");
-      expect(rejected.rejectionReason).toBe("Schedule conflict");
+      expect(rejected.rejectionReason).toBe("schedule_conflict");
+      expect(rejected.rejectionNotes).toBe("Have class until 3pm");
     });
 
     it("throws if not in pending status", async () => {
       const assignment = await createAssignment("accepted");
 
       await expect(
-        assignmentService.reject(assignment.id, membershipId, "Reason")
+        assignmentService.reject(assignment.id, membershipId, "personal_reasons")
       ).rejects.toThrow("Can only reject pending assignments");
     });
   });

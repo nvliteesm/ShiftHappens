@@ -430,7 +430,7 @@ describe("assignTaskSchema", () => {
 describe("rejectTaskSchema", () => {
   it("accepts valid rejection", () => {
     const result = rejectTaskSchema.safeParse({
-      rejectionReason: "I have a scheduling conflict",
+      rejectionReason: "schedule_conflict",
     });
     expect(result.success).toBe(true);
   });

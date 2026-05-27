@@ -24,6 +24,7 @@ interface Assignment {
   clockInTime: string | null;
   clockOutTime: string | null;
   rejectionReason: string | null;
+  rejectionNotes: string | null
   task: {
     id: string;
     title: string;
@@ -81,7 +82,7 @@ export default function MyTasksPage() {
     }
   }
 
-  async function onReject(assignmentId: string, reason: string) {
+  async function onReject(assignmentId: string, reason: string, notes?: string) {
     setError(null);
     try {
       const res = await fetch(
@@ -89,7 +90,7 @@ export default function MyTasksPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rejectionReason: reason }),
+          body: JSON.stringify({ rejectionReason: reason, rejectionNotes: notes }),
         }
       );
       if (!res.ok) {
@@ -217,16 +218,40 @@ export default function MyTasksPage() {
                   </div>
                   {rejectingId === a.id && (
                     <form
-                      className="mt-3 flex gap-2"
+                      className="mt-3 space-y-3"
                       onSubmit={(e) => {
                         e.preventDefault();
                         const formData = new FormData(e.currentTarget);
-                        onReject(a.id, formData.get("reason") as string);
+                        onReject(
+                          a.id,
+                          formData.get("rejectionReason") as string,
+                          (formData.get("rejectionNotes") as string) || undefined
+                        );
                       }}
                     >
-                      <Input name="reason" placeholder="Reason for rejection" required />
+                      <div className="space-y-1">
+                        <select
+                          name="rejectionReason"
+                          required
+                          className="w-full rounded-md border px-3 py-2 text-sm"
+                        >
+                          <option value="">Select a reason...</option>
+                          <option value="schedule_conflict">Schedule conflict</option>
+                          <option value="feeling_unwell">Feeling unwell</option>
+                          <option value="exceeds_preferred_hours">Exceeds preferred hours</option>
+                          <option value="transport_issues">Transport issues</option>
+                          <option value="insufficient_notice">Insufficient notice</option>
+                          <option value="rest_period_needed">Rest period needed</option>
+                          <option value="personal_reasons">Personal reasons</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <Input
+                        name="rejectionNotes"
+                        placeholder="Additional notes (optional)"
+                      />
                       <Button type="submit" size="sm" variant="outline">
-                        Confirm
+                        Confirm rejection
                       </Button>
                     </form>
                   )}
@@ -324,7 +349,8 @@ export default function MyTasksPage() {
                     </span>
                   </CardTitle>
                   <CardDescription>
-                    Reason: {a.rejectionReason}
+                    Reason: {a.rejectionReason?.replace(/_/g, " ")}
+                    {a.rejectionNotes && ` — ${a.rejectionNotes}`}
                   </CardDescription>
                 </CardHeader>
               </Card>

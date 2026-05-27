@@ -232,7 +232,17 @@ export const assignTaskSchema = z.object({
 
 /** Validates task rejection with required reason */
 export const rejectTaskSchema = z.object({
-  rejectionReason: z.string().min(1, "Rejection reason is required").max(500),
+  rejectionReason: z.enum([
+    "schedule_conflict",
+    "feeling_unwell",
+    "exceeds_preferred_hours",
+    "transport_issues",
+    "insufficient_notice",
+    "rest_period_needed",
+    "personal_reasons",
+    "other",
+  ]),
+  rejectionNotes: z.string().max(500).optional(),
 });
 
 // ============================================================

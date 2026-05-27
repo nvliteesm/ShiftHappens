@@ -250,6 +250,7 @@ model TaskAssignment {
   membershipId    String
   status          String    @default("pending")
   rejectionReason String?
+  rejectionNotes  String?
   clockInTime     DateTime?
   clockOutTime    DateTime?
   assignedById    String

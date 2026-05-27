@@ -48,7 +48,8 @@ export async function POST(
     const updated = await assignmentService.reject(
       assignmentId,
       membership.id,
-      parsed.data.rejectionReason
+      parsed.data.rejectionReason,
+      parsed.data.rejectionNotes
     );
     return NextResponse.json(updated);
   } catch (error) {

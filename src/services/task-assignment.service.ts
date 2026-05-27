@@ -42,7 +42,7 @@ export class TaskAssignmentService {
    * Rejects a pending task assignment with a required reason.
    * Only the assigned member can reject.
    */
-  async reject(assignmentId: string, membershipId: string, reason: string) {
+  async reject(assignmentId: string, membershipId: string, reason: string, notes?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
     if (!assignment) throw new Error("Assignment not found");
 
@@ -54,7 +54,7 @@ export class TaskAssignmentService {
       throw new Error("Can only reject pending assignments");
     }
 
-    return this.assignmentRepo.reject(assignmentId, reason);
+    return this.assignmentRepo.reject(assignmentId, reason, notes);
   }
 
   /**

@@ -129,8 +129,8 @@ export class TaskRepository {
       requiredHeadcount?: number;
       priority?: string;
       status?: string;
-      scheduledStart?: Date;
-      scheduledEnd?: Date;
+      scheduledStart?: Date | null;
+      scheduledEnd?: Date | null;
     }
   ) {
     return prisma.task.update({

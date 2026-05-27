@@ -221,8 +221,8 @@ export const updateTaskSchema = z.object({
   requiredHeadcount: z.number().int().min(1).max(50).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   status: z.enum(["open", "in_progress", "completed", "cancelled"]).optional(),
-  scheduledStart: z.string().datetime().optional(),
-  scheduledEnd: z.string().datetime().optional(),
+  scheduledStart: z.string().datetime().optional().or(z.literal("")),
+  scheduledEnd: z.string().datetime().optional().or(z.literal("")),
 });
 
 /** Validates staff assignment to a task */

@@ -30,6 +30,10 @@ export class TaskService {
    * Validates that end time is after start time if both are provided.
    */
   async create(input: CreateTaskInput, orgId: string, userId: string) {
+    if ((input.scheduledStart && !input.scheduledEnd) || (!input.scheduledStart && input.scheduledEnd)) {
+      throw new Error("Must provide both start and end time, or neither");
+    }
+
     if (input.scheduledStart && input.scheduledEnd) {
       const start = new Date(input.scheduledStart);
       const end = new Date(input.scheduledEnd);
@@ -82,6 +86,25 @@ export class TaskService {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
+    // Validate schedule: must have both or neither
+    const startProvided = "scheduledStart" in input;
+    const endProvided = "scheduledEnd" in input;
+    const newStart = startProvided ? (input.scheduledStart || null) : (task.scheduledStart?.toISOString() ?? null);
+    const newEnd = endProvided ? (input.scheduledEnd || null) : (task.scheduledEnd?.toISOString() ?? null);
+
+    // Must have both or neither
+    if ((newStart && !newEnd) || (!newStart && newEnd)) {
+      throw new Error("Must provide both start and end time, or clear both");
+    }
+
+    if (newStart && newEnd) {
+      const start = new Date(newStart);
+      const end = new Date(newEnd);
+      if (end <= start) {
+        throw new Error("End time must be after start time");
+      }
+    }
+
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
@@ -89,8 +112,8 @@ export class TaskService {
       requiredHeadcount: input.requiredHeadcount,
       priority: input.priority,
       status: input.status,
-      scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : undefined,
-      scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : undefined,
+      scheduledStart: input.scheduledStart ? new Date(input.scheduledStart) : null,
+      scheduledEnd: input.scheduledEnd ? new Date(input.scheduledEnd) : null,
     });
 
     await this.auditService.log({

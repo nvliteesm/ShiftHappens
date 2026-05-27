@@ -69,8 +69,13 @@ export async function PATCH(
     const updated = await taskService.update(taskId, orgId, parsed.data);
     return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Error && error.message === "Task not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Task not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.includes("start and end time") || error.message.includes("End time must be after")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

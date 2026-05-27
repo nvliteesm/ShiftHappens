@@ -152,6 +152,107 @@ describe("TaskService", () => {
       expect(updated.priority).toBe("urgent");
     });
 
+    it("clears scheduled times when set to empty", async () => {
+      const task = await taskService.create(
+        {
+          title: "Scheduled task",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+
+      expect(task.scheduledStart).not.toBeNull();
+
+      const updated = await taskService.update(task.id, orgId, {
+        scheduledStart: "",
+        scheduledEnd: "",
+      });
+
+      expect(updated.scheduledStart).toBeNull();
+      expect(updated.scheduledEnd).toBeNull();
+    });
+
+    it("throws if only start time is provided without end time", async () => {
+      const task = await taskService.create(
+        { title: "Test" },
+        orgId,
+        userId
+      );
+
+      await expect(
+        taskService.update(task.id, orgId, {
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+        })
+      ).rejects.toThrow("Must provide both start and end time, or clear both");
+    });
+
+    it("throws if only end time is provided without start time", async () => {
+      const task = await taskService.create(
+        { title: "Test" },
+        orgId,
+        userId
+      );
+
+      await expect(
+        taskService.update(task.id, orgId, {
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        })
+      ).rejects.toThrow("Must provide both start and end time, or clear both");
+    });
+
+    it("throws if end time equals start time", async () => {
+      const task = await taskService.create(
+        { title: "Test" },
+        orgId,
+        userId
+      );
+
+      await expect(
+        taskService.update(task.id, orgId, {
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T08:00:00.000Z",
+        })
+      ).rejects.toThrow("End time must be after start time");
+    });
+
+    it("throws if clearing start time but task has end time", async () => {
+      const task = await taskService.create(
+        {
+          title: "Scheduled",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+
+      await expect(
+        taskService.update(task.id, orgId, {
+          scheduledStart: "",
+        })
+      ).rejects.toThrow("Must provide both start and end time, or clear both");
+    });
+
+    it("throws if clearing end time but task has start time", async () => {
+      const task = await taskService.create(
+        {
+          title: "Scheduled",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+
+      await expect(
+        taskService.update(task.id, orgId, {
+          scheduledEnd: "",
+        })
+      ).rejects.toThrow("Must provide both start and end time, or clear both");
+    });
+
     it("throws if task not found", async () => {
       await expect(
         taskService.update("nonexistent", orgId, { title: "X" })

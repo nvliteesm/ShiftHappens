@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DepartmentService } from "@/services/department.service";
 import { updateDepartmentSchema } from "@/lib/validations";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
 const deptService = new DepartmentService();
@@ -24,6 +24,8 @@ export async function PATCH(
     if (!user) return unauthorizedResponse();
 
     const { orgId, deptId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {
@@ -59,6 +61,8 @@ export async function DELETE(
     if (!user) return unauthorizedResponse();
 
     const { orgId, deptId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {

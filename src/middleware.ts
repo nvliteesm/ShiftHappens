@@ -32,6 +32,7 @@ const MODERATE_PATTERNS = [
   "/tasks/auto-allocate",
   "/dashboard-insights",
   "/tasks/parse",
+  "/api/platform",
 ];
 
 const TIER_LIMITS = {

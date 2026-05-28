@@ -476,20 +476,46 @@ async function main() {
   console.log("Created 5 rejected assignments (Alex: 3, Jamie: 2)");
 
   // ============================================================
+  // Platform Admin (separate user, not tied to any org)
+  // ============================================================
+  let platformAdmin = await prisma.user.findUnique({
+    where: { email: "platform@smarttask.com" },
+  });
+  if (!platformAdmin) {
+    platformAdmin = await prisma.user.create({
+      data: {
+        name: "Platform Admin",
+        email: "platform@smarttask.com",
+        hashedPassword,
+        emailVerified: new Date(),
+        isPlatformAdmin: true,
+      },
+    });
+    console.log("Created platform admin account");
+  } else if (!platformAdmin.isPlatformAdmin) {
+    await prisma.user.update({
+      where: { id: platformAdmin.id },
+      data: { isPlatformAdmin: true },
+    });
+    console.log("Updated platform admin flag");
+  }
+
+  // ============================================================
   // Summary
   // ============================================================
   console.log("\nDemo data seeded successfully!");
   console.log("\nLogin credentials (all accounts):");
   console.log("Password: TestPass1!");
   console.log("\nAccounts:");
-  console.log("  Admin:   admin@oceangrill.com");
-  console.log("  Manager: sarah@oceangrill.com (Kitchen)");
-  console.log("  Manager: marcus@oceangrill.com (Bar)");
-  console.log("  Staff:   alex@oceangrill.com (Morning, Mon-Fri)");
-  console.log("  Staff:   jamie@oceangrill.com (Evening, Mon-Sat)");
-  console.log("  Staff:   taylor@oceangrill.com (Full day, Mon-Fri)");
-  console.log("  Staff:   jordan@oceangrill.com (Part time, Wed-Sun)");
-  console.log("  Staff:   casey@oceangrill.com (Flexible, all week)");
+  console.log("  Platform: platform@smarttask.com (Platform Admin)");
+  console.log("  Admin:    admin@oceangrill.com");
+  console.log("  Manager:  sarah@oceangrill.com (Kitchen)");
+  console.log("  Manager:  marcus@oceangrill.com (Bar)");
+  console.log("  Staff:    alex@oceangrill.com (Morning, Mon-Fri)");
+  console.log("  Staff:    jamie@oceangrill.com (Evening, Mon-Sat)");
+  console.log("  Staff:    taylor@oceangrill.com (Full day, Mon-Fri)");
+  console.log("  Staff:    jordan@oceangrill.com (Part time, Wed-Sun)");
+  console.log("  Staff:    casey@oceangrill.com (Flexible, all week)");
 }
 
 main()

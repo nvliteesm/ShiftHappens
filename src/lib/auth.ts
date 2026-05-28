@@ -13,6 +13,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { AuthService } from "@/services/auth.service";
+import { prisma } from "@/lib/prisma";
 
 const authService = new AuthService();
 
@@ -36,11 +37,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Block login for unverified email addresses
         if (!user.emailVerified) return null;
 
+        // Platform admins bypass org suspension check
+        if (!user.isPlatformAdmin) {
+          // Check if user belongs to at least one active org
+          const memberships = await prisma.membership.findMany({
+            where: { userId: user.id, status: "active" },
+            include: { organization: { select: { status: true } } },
+          });
+          if (memberships.length > 0) {
+            const hasActiveOrg = memberships.some(
+              (m) => m.organization.status === "active"
+            );
+            if (!hasActiveOrg) return null;
+          }
+        }
+
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           image: user.image,
+          isPlatformAdmin: user.isPlatformAdmin,
         };
       },
     }),
@@ -54,6 +71,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
+        token.isPlatformAdmin = (user as Record<string, unknown>).isPlatformAdmin ?? false;
       }
       return token;
     },
@@ -62,6 +80,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (token.id) {
         session.user.id = token.id as string;
       }
+      (session.user as unknown as Record<string, unknown>).isPlatformAdmin = token.isPlatformAdmin ?? false;
       return session;
     },
   },

@@ -7,7 +7,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
 const userMgmtService = new UserManagementService();
@@ -22,6 +22,8 @@ export async function POST(
     if (!user) return unauthorizedResponse();
 
     const { orgId, userId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {

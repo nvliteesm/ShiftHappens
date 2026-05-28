@@ -28,6 +28,12 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  // Platform admins have their own layout — redirect them
+  const isPlatformAdmin = (session.user as unknown as Record<string, unknown>).isPlatformAdmin;
+  if (isPlatformAdmin) {
+    redirect("/platform-admin");
+  }
+
   // Validate the session user still exists in the database
   const dbUser = await userRepo.findById(session.user.id);
   if (!dbUser) {
@@ -42,6 +48,12 @@ export default async function AppLayout({
 
   if (orgs.length > 0) {
     orgId = orgs[0].id;
+
+    // Redirect to suspended page if org is not active
+    if (orgs[0].status !== "active") {
+      redirect("/org-suspended");
+    }
+
     const membership = await membershipRepo.findByUserAndOrg(
       session.user.id,
       orgId

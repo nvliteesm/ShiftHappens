@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SettingsService } from "@/services/settings.service";
 import { updateCompanySettingsSchema } from "@/lib/validations";
-import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
+import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
 const settingsService = new SettingsService();
@@ -46,6 +46,8 @@ export async function PATCH(
     if (!user) return unauthorizedResponse();
 
     const { orgId } = await params;
+    const suspended = await checkOrgSuspended(orgId);
+    if (suspended) return suspended;
 
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || membership.role !== "company_admin") {

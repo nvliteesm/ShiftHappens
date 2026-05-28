@@ -39,7 +39,7 @@ export async function POST(
       );
     }
 
-    const role = await roleService.create(parsed.data, orgId);
+    const role = await roleService.create(parsed.data, orgId, user.id);
     return NextResponse.json(role, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "Role name already exists") {

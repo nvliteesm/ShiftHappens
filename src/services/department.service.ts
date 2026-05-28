@@ -5,21 +5,20 @@
  * Enforces rules:
  * - No duplicate department names within the same org
  * - Cannot delete a department that has assigned members
- * 
- * Enhancement planned (Phase 5/6): Smart reassignment suggestions
- * when attempting to delete a department with members.
  */
 import { DepartmentRepository } from "@/repositories/department.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateDepartmentInput, UpdateDepartmentInput } from "@/lib/validations";
 
 export class DepartmentService {
   private deptRepo = new DepartmentRepository();
+  private auditService = new AuditLogService();
 
   /**
    * Creates a new department in an organization.
    * Checks for duplicate names before creating.
    */
-  async create(input: CreateDepartmentInput, organizationId: string) {
+  async create(input: CreateDepartmentInput, organizationId: string, userId?: string) {
     const nameExists = await this.deptRepo.nameExistsInOrg(
       input.name,
       organizationId
@@ -28,12 +27,23 @@ export class DepartmentService {
       throw new Error("Department name already exists");
     }
 
-    return this.deptRepo.create({
+    const department = await this.deptRepo.create({
       name: input.name,
       description: input.description,
       color: input.color,
       organizationId,
     });
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.DEPARTMENT_CREATED,
+      entityType: "department",
+      entityId: department.id,
+      details: { name: input.name, color: input.color },
+    });
+
+    return department;
   }
 
   /** Retrieves all departments for an organization */
@@ -53,7 +63,8 @@ export class DepartmentService {
   async update(
     departmentId: string,
     organizationId: string,
-    input: UpdateDepartmentInput
+    input: UpdateDepartmentInput,
+    userId?: string
   ) {
     if (input.name) {
       const nameExists = await this.deptRepo.nameExistsInOrg(
@@ -66,21 +77,29 @@ export class DepartmentService {
       }
     }
 
-    return this.deptRepo.update(departmentId, {
+    const department = await this.deptRepo.update(departmentId, {
       name: input.name,
       description: input.description,
       color: input.color,
     });
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.DEPARTMENT_UPDATED,
+      entityType: "department",
+      entityId: departmentId,
+      details: { name: input.name, description: input.description, color: input.color },
+    });
+
+    return department;
   }
 
   /**
    * Deletes a department if it has no assigned members.
    * Blocks deletion with a clear error message when members exist.
-   * 
-   * TODO (Phase 5/6): Enhance with smart reassignment suggestions
-   * using the eligibility engine to recommend where to move staff.
    */
-  async delete(departmentId: string) {
+  async delete(departmentId: string, organizationId: string, userId?: string) {
     const hasMembers = await this.deptRepo.hasMembers(departmentId);
     if (hasMembers) {
       throw new Error(
@@ -88,6 +107,16 @@ export class DepartmentService {
       );
     }
 
-    return this.deptRepo.delete(departmentId);
+    const department = await this.deptRepo.delete(departmentId);
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.DEPARTMENT_DELETED,
+      entityType: "department",
+      entityId: departmentId,
+    });
+
+    return department;
   }
 }

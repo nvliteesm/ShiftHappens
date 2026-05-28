@@ -62,7 +62,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await settingsService.updateSettings(orgId, parsed.data);
+    const updated = await settingsService.updateSettings(orgId, parsed.data, user.id);
     return NextResponse.json(updated);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

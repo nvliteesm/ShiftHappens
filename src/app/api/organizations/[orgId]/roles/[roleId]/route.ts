@@ -67,7 +67,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await roleService.update(roleId, orgId, parsed.data);
+    const updated = await roleService.update(roleId, orgId, parsed.data, user.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
@@ -97,7 +97,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await roleService.delete(roleId, orgId);
+    await roleService.delete(roleId, orgId, user.id);
     return NextResponse.json({ message: "Role deleted" });
   } catch (error) {
     if (error instanceof Error) {

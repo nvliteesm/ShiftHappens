@@ -40,7 +40,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await deptService.update(deptId, orgId, parsed.data);
+    const updated = await deptService.update(deptId, orgId, parsed.data, user.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error && error.message === "Department name already exists") {
@@ -65,7 +65,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await deptService.delete(deptId);
+    await deptService.delete(deptId, orgId, user.id);
     return NextResponse.json({ message: "Department deleted" });
   } catch (error) {
     if (error instanceof Error && error.message.includes("Cannot delete")) {

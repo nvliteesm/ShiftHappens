@@ -9,10 +9,12 @@
  * but accepted as objects in the API for ease of use.
  */
 import { SettingsRepository } from "@/repositories/settings.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { UpdateCompanySettingsInput } from "@/lib/validations";
 
 export class SettingsService {
   private settingsRepo = new SettingsRepository();
+  private auditService = new AuditLogService();
 
   /** Gets settings for an org, creating defaults if none exist */
   async getSettings(organizationId: string) {
@@ -26,7 +28,8 @@ export class SettingsService {
    */
   async updateSettings(
     organizationId: string,
-    input: UpdateCompanySettingsInput
+    input: UpdateCompanySettingsInput,
+    userId?: string
   ) {
     // Ensure settings exist
     await this.settingsRepo.getOrCreate(organizationId);
@@ -48,6 +51,16 @@ export class SettingsService {
       updateData.notificationPreferences = JSON.stringify(input.notificationPreferences);
     }
 
-    return this.settingsRepo.update(organizationId, updateData);
+    const settings = await this.settingsRepo.update(organizationId, updateData);
+
+    await this.auditService.log({
+      organizationId,
+      userId,
+      action: ACTIONS.SETTINGS_UPDATED,
+      entityType: "settings",
+      details: updateData,
+    });
+
+    return settings;
   }
 }

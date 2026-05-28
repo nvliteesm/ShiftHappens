@@ -41,7 +41,7 @@ export async function POST(
       );
     }
 
-    const dept = await deptService.create(parsed.data, orgId);
+    const dept = await deptService.create(parsed.data, orgId, user.id);
     return NextResponse.json(dept, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "Department name already exists") {

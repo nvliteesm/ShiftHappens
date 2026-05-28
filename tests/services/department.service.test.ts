@@ -107,7 +107,7 @@ describe("DepartmentService", () => {
     it("deletes an empty department", async () => {
       const dept = await deptService.create({ name: "Engineering" }, orgId);
 
-      await deptService.delete(dept.id);
+      await deptService.delete(dept.id, orgId);
 
       const found = await deptService.getById(dept.id);
       expect(found).toBeNull();
@@ -127,7 +127,7 @@ describe("DepartmentService", () => {
         },
       });
 
-      await expect(deptService.delete(dept.id)).rejects.toThrow(
+      await expect(deptService.delete(dept.id, orgId)).rejects.toThrow(
         "Cannot delete department with assigned members"
       );
     });

@@ -28,7 +28,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const updated = await userMgmtService.toggleMemberStatus(userId, orgId);
+    const updated = await userMgmtService.toggleMemberStatus(userId, orgId, user.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {

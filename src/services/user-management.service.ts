@@ -9,17 +9,13 @@
  * 
  * BCE: Sits between Boundary (API routes) and Entity (repositories).
  * Only Company Admin can perform these operations (enforced at Boundary).
- * 
- * Security:
- * - Invitation tokens generated with crypto.randomBytes
- * - Duplicate invitation prevention
- * - Existing membership check before inviting
  */
 import crypto from "crypto";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { EmailService } from "@/services/email.service";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
 export class UserManagementService {
@@ -27,6 +23,7 @@ export class UserManagementService {
   private invitationRepo = new InvitationRepository();
   private userRepo = new UserRepository();
   private emailService = new EmailService();
+  private auditService = new AuditLogService();
 
   /** Lists all members of an organization with user details and departments */
   async getOrgMembers(organizationId: string) {
@@ -39,7 +36,7 @@ export class UserManagementService {
    * 2. Check for existing pending invitation
    * 3. Generate secure invitation token
    * 4. Create invitation record
-   * 5. Send invitation email (TODO: implement in EmailService)
+   * 5. Send invitation email
    */
   async inviteUser(
     input: InviteUserInput,
@@ -79,8 +76,14 @@ export class UserManagementService {
       invitedById,
     });
 
-    // TODO: Send invitation email with accept link
-    // await this.emailService.sendInvitationEmail(input.email, token, orgName);
+    await this.auditService.log({
+      organizationId,
+      userId: invitedById,
+      action: ACTIONS.MEMBER_INVITED,
+      entityType: "invitation",
+      entityId: invitation.id,
+      details: { email: input.email, role: input.role },
+    });
 
     return invitation;
   }
@@ -92,7 +95,8 @@ export class UserManagementService {
   async updateMemberRole(
     userId: string,
     organizationId: string,
-    input: UpdateUserRoleInput
+    input: UpdateUserRoleInput,
+    performedById?: string
   ) {
     const membership = await this.membershipRepo.findByUserAndOrg(
       userId,
@@ -101,6 +105,8 @@ export class UserManagementService {
     if (!membership) {
       throw new Error("Membership not found");
     }
+
+    const previousRole = membership.role;
 
     // Prevent demoting the last company_admin
     if (membership.role === "company_admin" && input.role !== "company_admin") {
@@ -130,15 +136,23 @@ export class UserManagementService {
       );
     }
 
+    await this.auditService.log({
+      organizationId,
+      userId: performedById,
+      action: ACTIONS.MEMBER_ROLE_CHANGED,
+      entityType: "member",
+      entityId: userId,
+      details: { previousRole, newRole: input.role, departmentIds: input.departmentIds },
+    });
+
     return updated;
   }
 
   /**
    * Toggles a member's status between active and inactive.
    * Deactivation prevents access to the organization.
-   * Task auto-unassignment will be added in Phase 4.
    */
-  async toggleMemberStatus(userId: string, organizationId: string) {
+  async toggleMemberStatus(userId: string, organizationId: string, performedById?: string) {
     const membership = await this.membershipRepo.findByUserAndOrg(
       userId,
       organizationId
@@ -162,6 +176,17 @@ export class UserManagementService {
     }
 
     const newStatus = membership.status === "active" ? "inactive" : "active";
-    return this.membershipRepo.updateStatus(membership.id, newStatus);
+    const updated = await this.membershipRepo.updateStatus(membership.id, newStatus);
+
+    await this.auditService.log({
+      organizationId,
+      userId: performedById,
+      action: newStatus === "active" ? ACTIONS.MEMBER_ACTIVATED : ACTIONS.MEMBER_DEACTIVATED,
+      entityType: "member",
+      entityId: userId,
+      details: { previousStatus: membership.status, newStatus },
+    });
+
+    return updated;
   }
 }

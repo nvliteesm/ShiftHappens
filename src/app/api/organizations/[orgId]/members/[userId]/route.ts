@@ -42,7 +42,8 @@ export async function PATCH(
     const updated = await userMgmtService.updateMemberRole(
       userId,
       orgId,
-      parsed.data
+      parsed.data,
+      user.id
     );
     return NextResponse.json(updated);
   } catch (error) {

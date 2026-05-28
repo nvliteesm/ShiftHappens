@@ -221,7 +221,7 @@ export class TaskService {
   }
 
   /** Cancels a task assignment — admin/manager action */
-  async cancelAssignment(assignmentId: string) {
+  async cancelAssignment(assignmentId: string, userId?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
     if (!assignment) throw new Error("Assignment not found");
 
@@ -233,6 +233,7 @@ export class TaskService {
 
     await this.auditService.log({
       organizationId: assignment.task.organizationId,
+      userId,
       action: ACTIONS.TASK_UNASSIGNED,
       entityType: "assignment",
       entityId: assignmentId,

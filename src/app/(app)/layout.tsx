@@ -5,6 +5,7 @@
  * Validates session user still exists in database.
  * Fetches org and role for the role-aware sidebar.
  * Redirects unauthenticated or invalid users to /login.
+ * Shows suspension message inline if org is suspended.
  */
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/lib/auth";
@@ -12,6 +13,7 @@ import { AppSidebar } from "@/components/layout/app-sidebar";
 import { OrganizationService } from "@/services/organization.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
+import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
 
 const orgService = new OrganizationService();
 const membershipRepo = new MembershipRepository();
@@ -45,20 +47,28 @@ export default async function AppLayout({
   const orgs = await orgService.getUserOrganizations(session.user.id);
   let orgId: string | undefined;
   let role: string | undefined;
+  let orgSuspended = false;
 
   if (orgs.length > 0) {
     orgId = orgs[0].id;
 
-    // Redirect to suspended page if org is not active
     if (orgs[0].status !== "active") {
-      redirect("/org-suspended");
+      orgSuspended = true;
+    } else {
+      const membership = await membershipRepo.findByUserAndOrg(
+        session.user.id,
+        orgId
+      );
+      role = membership?.role;
     }
+  }
 
-    const membership = await membershipRepo.findByUserAndOrg(
-      session.user.id,
-      orgId
+  if (orgSuspended) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <OrgSuspendedBanner />
+      </div>
     );
-    role = membership?.role;
   }
 
   return (

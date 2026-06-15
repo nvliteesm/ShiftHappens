@@ -360,6 +360,20 @@ export class ReportingRepository {
   }
 
   /**
+   * Gets department IDs for a membership.
+   * Used by the dashboard API route to scope manager views.
+   */
+  async getMemberDepartmentIds(
+    membershipId: string
+  ): Promise<string[]> {
+    const records = await prisma.departmentMembership.findMany({
+      where: { membershipId },
+      select: { departmentId: true },
+    });
+    return records.map((r) => r.departmentId);
+  }
+
+  /**
    * Gets team members with today's assignments and availability.
    * Used for manager's team roster with shift status badges.
    * Date parameters allow the service to define "today" boundaries.

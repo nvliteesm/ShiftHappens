@@ -178,6 +178,17 @@ export class ReportingService {
   private reportingRepo = new ReportingRepository();
   private settingsRepo = new SettingsRepository();
 
+  // ===== Member Scoping =====
+
+  /**
+   * Gets department IDs for a membership.
+   * Used by the dashboard API route to scope manager views
+   * without directly accessing the Entity layer.
+   */
+  async getMemberDepartmentIds(membershipId: string): Promise<string[]> {
+    return this.reportingRepo.getMemberDepartmentIds(membershipId);
+  }
+
   // ===== Legacy (backward compatibility) =====
 
   /**

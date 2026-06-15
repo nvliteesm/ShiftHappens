@@ -250,6 +250,14 @@ async function main() {
   console.log("Created 8 certifications");
 
   // ============================================================
+  // Clean old demo tasks for fresh data
+  // ============================================================
+  console.log("Cleaning old task data for fresh charts...");
+  await prisma.task.deleteMany({ where: { organizationId: orgId } });
+  await prisma.auditLog.deleteMany({ where: { organizationId: orgId } });
+  console.log("Cleaned old tasks and audit logs");
+
+  // ============================================================
   // Upcoming tasks (tomorrow)
   // ============================================================
   const tomorrow = new Date();

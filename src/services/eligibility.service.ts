@@ -1,18 +1,15 @@
 /**
  * Eligibility Service (Control Layer)
- * 
- * The core eligibility engine. Checks three dimensions to determine
+ *
+ * The core eligibility engine. Checks four dimensions to determine
  * if a staff member is eligible for a task assignment:
- * 
- * 1. HOURS LIMIT — Has the member exceeded the break rule threshold?
- *    Uses company settings breakRuleHoursWorked to check recent hours.
- * 
+ *
+ * 1. HOURS LIMIT — Has the member exceeded the company break rule threshold?
  * 2. AVAILABILITY — Is the member available at the task's scheduled time?
- *    Checks weekly schedule and date overrides.
- * 
- * 3. CERTIFICATIONS — Does the member have required certifications?
- *    (Placeholder for now — tasks don't yet specify required certs)
- * 
+ * 3. SCHEDULING — Does the member have conflicting assignments?
+ * 4. WORK RULES — Does the assignment violate any custom work rules?
+ *    (break_interval, max_hours_daily, max_hours_weekly)
+ *
  * Each dimension returns eligible/ineligible with a reason.
  * Eligibility overrides can bypass specific rules with documentation.
  */
@@ -22,6 +19,7 @@ import { EligibilityOverrideRepository } from "@/repositories/eligibility-overri
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { prisma } from "@/lib/prisma";
 
 interface EligibilityCheck {
@@ -37,6 +35,7 @@ interface StaffEligibility {
     hoursLimit: EligibilityCheck;
     availability: EligibilityCheck;
     scheduling: EligibilityCheck;
+    workRules: EligibilityCheck;
   };
   overrides: string[];
 }
@@ -48,6 +47,7 @@ export class EligibilityService {
   private settingsRepo = new SettingsRepository();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
+  private workRuleRepo = new WorkRuleRepository();
 
   /**
    * Checks eligibility for all active staff in an organization
@@ -63,6 +63,9 @@ export class EligibilityService {
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
 
+    // Get all active work rules for this org (no role filtering — check all, filter per member later)
+    const allWorkRules = await this.workRuleRepo.findApplicableRules(organizationId);
+
     // Get all active non-admin members
     const allMembers = await this.membershipRepo.findByOrgId(organizationId);
     const eligibleMembers = allMembers.filter(
@@ -75,10 +78,14 @@ export class EligibilityService {
       // Check for existing overrides
       const overrides: string[] = [];
       const hasHoursOverride = await this.overrideRepo.hasOverride(
-        taskId, member.id, "hours_limit"
+        taskId,
+        member.id,
+        "hours_limit"
       );
       const hasAvailOverride = await this.overrideRepo.hasOverride(
-        taskId, member.id, "availability"
+        taskId,
+        member.id,
+        "availability"
       );
       if (hasHoursOverride) overrides.push("hours_limit");
       if (hasAvailOverride) overrides.push("availability");
@@ -116,10 +123,18 @@ export class EligibilityService {
         task
       );
 
+      // 4. Check work rules
+      const workRulesCheck = await this.checkWorkRules(
+        member.id,
+        allWorkRules,
+        task
+      );
+
       const eligible =
         hoursCheck.eligible &&
         availCheck.eligible &&
-        schedulingCheck.eligible;
+        schedulingCheck.eligible &&
+        workRulesCheck.eligible;
 
       results.push({
         membershipId: member.id,
@@ -129,6 +144,7 @@ export class EligibilityService {
           hoursLimit: hoursCheck,
           availability: availCheck,
           scheduling: schedulingCheck,
+          workRules: workRulesCheck,
         },
         overrides,
       });
@@ -160,7 +176,8 @@ export class EligibilityService {
     for (const assignment of recentAssignments) {
       if (assignment.clockInTime && assignment.clockOutTime) {
         const hours =
-          (assignment.clockOutTime.getTime() - assignment.clockInTime.getTime()) /
+          (assignment.clockOutTime.getTime() -
+            assignment.clockInTime.getTime()) /
           (1000 * 60 * 60);
         totalHours += hours;
       }
@@ -213,6 +230,153 @@ export class EligibilityService {
     }
 
     return { eligible: true };
+  }
+
+  /**
+   * Checks all applicable work rules against a staff member.
+   * Returns ineligible with the first violated rule's name and reason.
+   *
+   * Rule types:
+   * - break_interval: hours worked in last 24h vs threshold
+   * - max_hours_daily: hours worked on the task's scheduled date
+   * - max_hours_weekly: hours worked in the task's scheduled week
+   */
+  private async checkWorkRules(
+    membershipId: string,
+    rules: Awaited<ReturnType<WorkRuleRepository["findApplicableRules"]>>,
+    task: { scheduledStart: Date | null; scheduledEnd: Date | null }
+  ): Promise<EligibilityCheck> {
+    if (rules.length === 0) {
+      return { eligible: true };
+    }
+
+    for (const rule of rules) {
+      let violated = false;
+      let reason = "";
+
+      switch (rule.type) {
+        case "break_interval": {
+          if (!rule.hoursThreshold) break;
+          const hours = await this.getHoursInLast24h(membershipId);
+          if (hours >= rule.hoursThreshold) {
+            violated = true;
+            reason = `Worked ${hours.toFixed(1)}h in last 24h (rule "${rule.name}": max ${rule.hoursThreshold}h before break)`;
+          }
+          break;
+        }
+
+        case "max_hours_daily": {
+          if (!rule.maxHours || !task.scheduledStart) break;
+          const dailyHours = await this.getHoursOnDate(
+            membershipId,
+            task.scheduledStart
+          );
+          if (dailyHours >= rule.maxHours) {
+            violated = true;
+            reason = `Already worked ${dailyHours.toFixed(1)}h on this day (rule "${rule.name}": max ${rule.maxHours}h/day)`;
+          }
+          break;
+        }
+
+        case "max_hours_weekly": {
+          if (!rule.maxHours || !task.scheduledStart) break;
+          const weeklyHours = await this.getHoursInWeek(
+            membershipId,
+            task.scheduledStart
+          );
+          if (weeklyHours >= rule.maxHours) {
+            violated = true;
+            reason = `Already worked ${weeklyHours.toFixed(1)}h this week (rule "${rule.name}": max ${rule.maxHours}h/week)`;
+          }
+          break;
+        }
+      }
+
+      if (violated) {
+        return { eligible: false, reason };
+      }
+    }
+
+    return { eligible: true };
+  }
+
+  /** Gets total hours worked in the last 24 hours */
+  private async getHoursInLast24h(membershipId: string): Promise<number> {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: "completed",
+        clockInTime: { gte: oneDayAgo },
+        clockOutTime: { not: null },
+      },
+    });
+
+    return this.sumHours(assignments);
+  }
+
+  /** Gets total hours worked on a specific calendar date */
+  private async getHoursOnDate(
+    membershipId: string,
+    date: Date
+  ): Promise<number> {
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: "completed",
+        clockInTime: { gte: dayStart, lt: dayEnd },
+        clockOutTime: { not: null },
+      },
+    });
+
+    return this.sumHours(assignments);
+  }
+
+  /** Gets total hours worked in the calendar week containing the date */
+  private async getHoursInWeek(
+    membershipId: string,
+    date: Date
+  ): Promise<number> {
+    const weekStart = new Date(date);
+    const day = weekStart.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday-based week
+    weekStart.setDate(weekStart.getDate() + diff);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const assignments = await prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: "completed",
+        clockInTime: { gte: weekStart, lt: weekEnd },
+        clockOutTime: { not: null },
+      },
+    });
+
+    return this.sumHours(assignments);
+  }
+
+  /** Sums clock-in/out durations to total hours */
+  private sumHours(
+    assignments: { clockInTime: Date | null; clockOutTime: Date | null }[]
+  ): number {
+    let total = 0;
+    for (const a of assignments) {
+      if (a.clockInTime && a.clockOutTime) {
+        total +=
+          (a.clockOutTime.getTime() - a.clockInTime.getTime()) /
+          (1000 * 60 * 60);
+      }
+    }
+    return Math.round(total * 10) / 10;
   }
 
   /**

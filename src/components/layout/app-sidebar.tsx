@@ -65,6 +65,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         label: "Settings",
       });
       links.push({
+        href: `/org/${orgId}/work-rules`,
+        label: "Work Rules",
+      });
+      links.push({
         href: `/org/${orgId}/audit-log`,
         label: "Audit Log",
       });

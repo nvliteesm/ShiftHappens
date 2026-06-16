@@ -290,6 +290,32 @@ export const createEligibilityOverrideSchema = z.object({
 });
 
 // ============================================================
+// Phase 8: Work Rules
+// ============================================================
+
+export const workRuleTypes = ["break_interval", "max_hours_daily", "max_hours_weekly"] as const;
+
+export const createWorkRuleSchema = z.object({
+  name: z.string().min(1, "Name is required").max(100),
+  type: z.enum(workRuleTypes),
+  roleId: z.string().optional().nullable(),
+  hoursThreshold: z.number().positive().optional().nullable(),
+  breakHours: z.number().positive().optional().nullable(),
+  maxHours: z.number().positive().optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+export const updateWorkRuleSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  type: z.enum(workRuleTypes).optional(),
+  roleId: z.string().optional().nullable(),
+  hoursThreshold: z.number().positive().optional().nullable(),
+  breakHours: z.number().positive().optional().nullable(),
+  maxHours: z.number().positive().optional().nullable(),
+  isActive: z.boolean().optional(),
+});
+
+// ============================================================
 // Type Exports — inferred from schemas for type-safe usage
 // ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -316,3 +342,5 @@ export type CreateAvailabilityOverrideInput = z.infer<typeof createAvailabilityO
 export type CreateCertificationInput = z.infer<typeof createCertificationSchema>;
 export type VerifyCertificationInput = z.infer<typeof verifyCertificationSchema>;
 export type CreateEligibilityOverrideInput = z.infer<typeof createEligibilityOverrideSchema>;
+export type CreateWorkRuleInput = z.infer<typeof createWorkRuleSchema>;
+export type UpdateWorkRuleInput = z.infer<typeof updateWorkRuleSchema>;

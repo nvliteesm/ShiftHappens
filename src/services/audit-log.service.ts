@@ -38,6 +38,10 @@ const ACTIONS = {
   ROLE_CREATED: "role.created",
   ROLE_UPDATED: "role.updated",
   ROLE_DELETED: "role.deleted",
+  // Work Rules
+  WORK_RULE_CREATED: "work_rule.created",
+  WORK_RULE_UPDATED: "work_rule.updated",
+  WORK_RULE_DELETED: "work_rule.deleted",
   // Auth
   USER_REGISTERED: "user.registered",
   USER_LOGGED_IN: "user.logged_in",

@@ -26,4 +26,6 @@ export async function cleanDatabase() {
   await prisma.account.deleteMany();
   await prisma.organization.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.workRule.deleteMany();
+  await prisma.rolePermission.deleteMany();
 }

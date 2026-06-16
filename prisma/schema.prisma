@@ -48,6 +48,7 @@ model Organization {
   companySettings  CompanySettings?
   tasks            Task[]
   auditLogs        AuditLog[]
+  workRules        WorkRule[]
 }
 
 model Membership {
@@ -178,6 +179,7 @@ model Role {
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   rolePermissions RolePermission[]
+  workRules       WorkRule[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -355,4 +357,24 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([action])
   @@index([entityType, entityId])
+}
+
+model WorkRule {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  type            String   // "break_interval" | "max_hours_daily" | "max_hours_weekly"
+  roleId          String?  // null = applies to all staff
+  hoursThreshold  Float?   // for break_interval: every X hours
+  breakHours      Float?   // for break_interval: require Y hours break
+  maxHours        Float?   // for max_hours_daily/weekly: cap at X hours
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }

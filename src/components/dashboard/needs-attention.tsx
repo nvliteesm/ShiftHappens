@@ -4,6 +4,7 @@
  * Shared alert list used by both Admin and Manager dashboards.
  * Renders color-coded items (danger/warning/info) with action buttons.
  * Each item links to the relevant page for resolution.
+ * Supports light and dark mode.
  */
 "use client";
 
@@ -21,15 +22,15 @@ export interface NeedsAttentionItem {
 }
 
 const severityStyles: Record<string, string> = {
-  danger: "bg-red-50 text-red-800",
-  warning: "bg-amber-50 text-amber-800",
-  info: "bg-blue-50 text-blue-800",
+  danger: "bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200",
+  warning: "bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-200",
+  info: "bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-200",
 };
 
 const buttonVariants: Record<string, string> = {
-  danger: "border-red-200 text-red-700 hover:bg-red-100",
-  warning: "border-amber-200 text-amber-700 hover:bg-amber-100",
-  info: "border-blue-200 text-blue-700 hover:bg-blue-100",
+  danger: "border-red-200 text-red-700 hover:bg-red-100 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900",
+  warning: "border-amber-200 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900",
+  info: "border-blue-200 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900",
 };
 
 export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
@@ -48,7 +49,7 @@ export function NeedsAttention({ items }: { items: NeedsAttentionItem[] }) {
           >
             <span className="mr-4 leading-snug">
               {item.isAiInsight && (
-                <span className="mr-1.5 inline-flex items-center rounded bg-white/60 px-1.5 py-0.5 text-xs font-medium">
+                <span className="mr-1.5 inline-flex items-center rounded bg-white/60 px-1.5 py-0.5 text-xs font-medium dark:bg-white/10">
                   ✦ AI Insight
                 </span>
               )}

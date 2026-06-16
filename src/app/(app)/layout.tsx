@@ -65,7 +65,7 @@ export default async function AppLayout({
 
   if (orgSuspended) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="flex min-h-screen items-center justify-center bg-background">
         <OrgSuspendedBanner />
       </div>
     );

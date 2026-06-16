@@ -1,17 +1,16 @@
 /**
  * App Sidebar Component (Boundary Layer)
- * 
- * Role-aware sidebar navigation. Shows different links
- * based on the user's role in their current organization.
- * - Company Admin: Dashboard, Departments, Members, Profile
- * - Manager: Dashboard, Departments, Profile
- * - Staff: Dashboard, Profile
+ *
+ * Role-aware sidebar navigation with dark mode toggle.
+ * Shows different links based on the user's role in
+ * their current organization.
  */
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 
 interface AppSidebarProps {
@@ -25,6 +24,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
   const pathname = usePathname();
+  const { resolvedTheme, setTheme } = useTheme();
 
   // Base links visible to all authenticated users
   const links: { href: string; label: string }[] = [
@@ -92,7 +92,7 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
   links.push({ href: "/settings/profile", label: "Profile" });
 
   return (
-    <aside className="flex w-64 flex-col border-r bg-gray-50 p-4 sticky top-0 h-screen overflow-y-auto">
+    <aside className="flex w-64 flex-col border-r bg-muted/40 p-4 sticky top-0 h-screen overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-lg font-bold">Smart Task Allocation</h1>
       </div>
@@ -103,21 +103,31 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
             href={link.href}
             className={`block rounded-md px-3 py-2 text-sm ${
               pathname.startsWith(link.href)
-                ? "bg-gray-200 font-medium"
-                : "hover:bg-gray-100"
+                ? "bg-accent font-medium"
+                : "hover:bg-accent/50"
             }`}
           >
             {link.label}
           </Link>
         ))}
       </nav>
-      <div className="border-t pt-4">
+      <div className="border-t pt-4 space-y-2">
         <p className="text-sm font-medium">{user.name}</p>
         <p className="text-xs text-muted-foreground">{user.email}</p>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          >
+            {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+          </Button>
+        </div>
         <Button
           variant="outline"
           size="sm"
-          className="mt-2 w-full"
+          className="w-full"
           onClick={() => signOut({ callbackUrl: "/login" })}
         >
           Sign out

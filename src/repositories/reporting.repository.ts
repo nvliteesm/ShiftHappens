@@ -928,4 +928,35 @@ export class ReportingRepository {
       createdAt: r.createdAt,
     }));
   }
+
+  // ===== Calendar Coverage =====
+
+  /**
+   * Gets all staff availability schedules for an organization.
+   * Used for calendar heatmap coverage computation.
+   * Returns weekly recurring schedules for all active staff/managers.
+   */
+  async getAllStaffAvailability(organizationId: string) {
+    return prisma.availability.findMany({
+      where: {
+        membership: {
+          organizationId,
+          status: "active",
+          role: { in: ["staff", "manager"] },
+        },
+      },
+      select: {
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        isAvailable: true,
+        membershipId: true,
+        membership: {
+          select: {
+            user: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
+  }
 }

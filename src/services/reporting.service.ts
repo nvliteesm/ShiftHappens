@@ -824,6 +824,48 @@ export class ReportingService {
     };
   }
 
+  // ===== Calendar Coverage (Heatmap) =====
+
+  /**
+   * Computes staff availability coverage for each hour of each day.
+   * Returns a 7x16 matrix (7 days x 16 hours, 6am-10pm) with coverage counts.
+   * Used for calendar heatmap background tints.
+   */
+  async getCalendarCoverage(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<{ dayOfWeek: number; hour: number; count: number }[]> {
+    const schedules = await this.reportingRepo.getAllStaffAvailability(organizationId);
+
+    // Build coverage matrix
+    const coverage: { dayOfWeek: number; hour: number; count: number }[] = [];
+
+    for (let day = 0; day < 7; day++) {
+      for (let hour = 6; hour < 22; hour++) {
+        const hourStr = `${String(hour).padStart(2, "0")}:00`;
+        const nextHourStr = `${String(hour + 1).padStart(2, "0")}:00`;
+
+        let count = 0;
+        const seen = new Set<string>();
+
+        for (const s of schedules) {
+          if (s.dayOfWeek !== day || !s.isAvailable) continue;
+          if (seen.has(s.membershipId)) continue;
+
+          // Check if this hour falls within the staff's availability window
+          if (s.startTime <= hourStr && s.endTime >= nextHourStr) {
+            count++;
+            seen.add(s.membershipId);
+          }
+        }
+
+        coverage.push({ dayOfWeek: day, hour, count });
+      }
+    }
+
+    return coverage;
+  }
+
   // ===== Private Helpers =====
 
   /** Gets Monday 00:00 of the week containing the given date */

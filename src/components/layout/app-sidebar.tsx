@@ -7,6 +7,7 @@
  */
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -25,6 +26,11 @@ interface AppSidebarProps {
 export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Base links visible to all authenticated users
   const links: { href: string; label: string }[] = [
@@ -115,14 +121,16 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         <p className="text-sm font-medium">{user.name}</p>
         <p className="text-xs text-muted-foreground">{user.email}</p>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1"
-            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-          >
-            {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
-          </Button>
+          {mounted && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            >
+              {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+            </Button>
+          )}
         </div>
         <Button
           variant="outline"

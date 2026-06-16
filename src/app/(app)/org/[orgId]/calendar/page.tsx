@@ -1,14 +1,19 @@
 /**
  * Calendar View Page (Boundary Layer)
- * 
+ *
  * Weekly calendar showing scheduled tasks as colored blocks
- * by department. Admins and managers can see all tasks.
- * Click a task block to view details.
- * Navigate between weeks with prev/next buttons.
- * 
+ * by department, with a heatmap coverage layer showing staff
+ * availability per time slot.
+ *
+ * Two layers:
+ * 1. Heatmap background — tint each cell by staff availability count
+ * 2. Task blocks — department-colored blocks (existing)
+ *
  * Features:
  * - Department color coding with legend
  * - Side-by-side rendering of overlapping tasks
+ * - Coverage heatmap with counts per cell
+ * - Coverage / Tasks-only toggle
  * - Department filter
  * - Current time indicator
  * - Unscheduled tasks notice
@@ -41,6 +46,12 @@ interface Task {
   }[];
 }
 
+interface CoverageCell {
+  dayOfWeek: number;
+  hour: number;
+  count: number;
+}
+
 const HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -64,18 +75,28 @@ function getWeekDates(weekStart: Date): Date[] {
   });
 }
 
+/** Returns a tint color based on staff coverage count */
+function getCoverageTint(count: number, isDark: boolean): string {
+  if (count >= 4) return isDark ? "rgba(34,197,94,0.12)" : "rgba(34,197,94,0.08)";
+  if (count === 3) return isDark ? "rgba(34,197,94,0.07)" : "rgba(34,197,94,0.04)";
+  if (count >= 1) return isDark ? "rgba(245,158,11,0.10)" : "rgba(245,158,11,0.06)";
+  return isDark ? "rgba(239,68,68,0.10)" : "rgba(239,68,68,0.05)";
+}
+
 /**
  * Calculates column positions for overlapping tasks.
- * Returns a map of taskId -> { column, totalColumns }
  */
-function calculateOverlapColumns(dayTasks: Task[]): Map<string, { column: number; totalColumns: number }> {
+function calculateOverlapColumns(
+  dayTasks: Task[]
+): Map<string, { column: number; totalColumns: number }> {
   const result = new Map<string, { column: number; totalColumns: number }>();
-
   if (dayTasks.length === 0) return result;
 
-  const sorted = [...dayTasks].sort((a, b) => {
-    return new Date(a.scheduledStart!).getTime() - new Date(b.scheduledStart!).getTime();
-  });
+  const sorted = [...dayTasks].sort(
+    (a, b) =>
+      new Date(a.scheduledStart!).getTime() -
+      new Date(b.scheduledStart!).getTime()
+  );
 
   const groups: Task[][] = [];
   let currentGroup: Task[] = [sorted[0]];
@@ -85,7 +106,10 @@ function calculateOverlapColumns(dayTasks: Task[]): Map<string, { column: number
     const taskStart = new Date(sorted[i].scheduledStart!).getTime();
     if (taskStart < groupEnd) {
       currentGroup.push(sorted[i]);
-      groupEnd = Math.max(groupEnd, new Date(sorted[i].scheduledEnd!).getTime());
+      groupEnd = Math.max(
+        groupEnd,
+        new Date(sorted[i].scheduledEnd!).getTime()
+      );
     } else {
       groups.push(currentGroup);
       currentGroup = [sorted[i]];
@@ -108,6 +132,8 @@ export default function CalendarPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [coverage, setCoverage] = useState<CoverageCell[]>([]);
+  const [showCoverage, setShowCoverage] = useState(true);
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [filterDept, setFilterDept] = useState("");
@@ -115,17 +141,30 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // Detect dark mode for heatmap tint colors
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () =>
+      setIsDark(document.documentElement.classList.contains("dark"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     fetchTasks();
+    fetchCoverage();
   }, [orgId]);
 
-  // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Re-fetch when page becomes visible (user navigates back)
   useEffect(() => {
     function onFocus() {
       fetchTasks();
@@ -141,14 +180,34 @@ export default function CalendarPage() {
         setError("Failed to load tasks");
         return;
       }
-      const data = await res.json();
-      setTasks(data);
+      setTasks(await res.json());
       setError(null);
     } catch {
       setError("Failed to load tasks. Please try refreshing the page.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function fetchCoverage() {
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/calendar/coverage`
+      );
+      if (res.ok) {
+        setCoverage(await res.json());
+      }
+    } catch {
+      // Coverage is non-critical — fail silently
+    }
+  }
+
+  /** Get coverage count for a specific day and hour */
+  function getCoverageCount(dayOfWeek: number, hour: number): number {
+    const cell = coverage.find(
+      (c) => c.dayOfWeek === dayOfWeek && c.hour === hour
+    );
+    return cell?.count ?? 0;
   }
 
   function prevWeek() {
@@ -173,7 +232,6 @@ export default function CalendarPage() {
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
 
-  // Get unique departments for filter — sorted alphabetically
   const departments = Array.from(
     new Map(
       tasks
@@ -182,17 +240,14 @@ export default function CalendarPage() {
     ).values()
   ).sort((a, b) => a.name.localeCompare(b.name));
 
-  // Filter tasks
   const filteredTasks = filterDept
     ? tasks.filter((t) => t.department?.id === filterDept)
     : tasks;
 
-  // Scheduled vs unscheduled
   const unscheduledCount = filteredTasks.filter(
     (t) => !t.scheduledStart || !t.scheduledEnd
   ).length;
 
-  // Tasks within this week
   const weekTasks = filteredTasks.filter((t) => {
     if (!t.scheduledStart || !t.scheduledEnd) return false;
     const start = new Date(t.scheduledStart);
@@ -204,8 +259,10 @@ export default function CalendarPage() {
     const dayDate = weekDates[dayIndex];
     return weekTasks.filter((t) => {
       const start = new Date(t.scheduledStart!);
-      return start.getDay() === dayDate.getDay() &&
-        start.toDateString() === dayDate.toDateString();
+      return (
+        start.getDay() === dayDate.getDay() &&
+        start.toDateString() === dayDate.toDateString()
+      );
     });
   }
 
@@ -219,7 +276,6 @@ export default function CalendarPage() {
     return { top: `${top}%`, height: `${Math.max(height, 3)}%` };
   }
 
-  // Current time indicator position
   function getCurrentTimePosition(): number | null {
     const hour = currentTime.getHours() + currentTime.getMinutes() / 60;
     if (hour < 6 || hour > 22) return null;
@@ -237,6 +293,13 @@ export default function CalendarPage() {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-2xl font-bold">Calendar</h2>
         <div className="flex items-center gap-2">
+          <Button
+            variant={showCoverage ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowCoverage(!showCoverage)}
+          >
+            {showCoverage ? "Coverage" : "Tasks only"}
+          </Button>
           <Button variant="outline" size="sm" onClick={prevWeek}>
             ← Prev
           </Button>
@@ -256,26 +319,30 @@ export default function CalendarPage() {
         </p>
         <div className="flex items-center gap-3">
           {unscheduledCount > 0 && (
-            <span className="rounded-md bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-700">
-              {unscheduledCount} unscheduled task{unscheduledCount > 1 ? "s" : ""} not shown
+            <span className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
+              {unscheduledCount} unscheduled task
+              {unscheduledCount > 1 ? "s" : ""} not shown
             </span>
           )}
           <select
-            className="rounded-md border px-3 py-1.5 text-sm"
+            className="rounded-md border px-3 py-1.5 text-sm bg-background"
             value={filterDept}
             onChange={(e) => setFilterDept(e.target.value)}
           >
             <option value="">All departments</option>
             {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>{dept.name}</option>
+              <option key={dept.id} value={dept.id}>
+                {dept.name}
+              </option>
             ))}
           </select>
         </div>
       </div>
 
-      {/* Error display */}
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>
+        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
+          {error}
+        </div>
       )}
 
       {/* Calendar grid */}
@@ -288,7 +355,7 @@ export default function CalendarPage() {
               key={i}
               className={`p-2 text-center text-sm border-r last:border-r-0 ${
                 date.toDateString() === todayStr
-                  ? "bg-blue-50 font-semibold text-blue-700"
+                  ? "bg-blue-50 dark:bg-blue-950 font-semibold text-blue-700 dark:text-blue-300"
                   : ""
               }`}
             >
@@ -326,22 +393,39 @@ export default function CalendarPage() {
             const dayTasks = getTasksForDay(dayIndex);
             const overlapMap = calculateOverlapColumns(dayTasks);
             const isToday = date.toDateString() === todayStr;
+            const dayOfWeek = date.getDay();
 
             return (
               <div
                 key={dayIndex}
                 className={`border-r last:border-r-0 relative ${
-                  isToday ? "bg-blue-50/30" : ""
+                  isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""
                 }`}
               >
-                {/* Hour lines */}
-                {HOURS.map((hour) => (
-                  <div
-                    key={hour}
-                    className="border-b"
-                    style={{ height: `${100 / 16}%` }}
-                  />
-                ))}
+                {/* Hour cells with heatmap */}
+                {HOURS.map((hour) => {
+                  const count = getCoverageCount(dayOfWeek, hour);
+                  return (
+                    <div
+                      key={hour}
+                      className="border-b relative"
+                      style={{
+                        height: `${100 / 16}%`,
+                        backgroundColor:
+                          showCoverage && coverage.length > 0
+                            ? getCoverageTint(count, isDark)
+                            : undefined,
+                      }}
+                    >
+                      {/* Coverage count in bottom-right corner */}
+                      {showCoverage && coverage.length > 0 && (
+                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">
+                          {count}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {/* Current time indicator */}
                 {isToday && timePosition !== null && (
@@ -360,9 +444,14 @@ export default function CalendarPage() {
                 {dayTasks.map((task) => {
                   const pos = getTaskPosition(task);
                   const color = task.department?.color || "#94A3B8";
-                  const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
+                  const overlap = overlapMap.get(task.id) || {
+                    column: 0,
+                    totalColumns: 1,
+                  };
                   const widthPercent = 100 / overlap.totalColumns;
                   const leftPercent = overlap.column * widthPercent;
+                  const isUnderstaffed =
+                    task.assignments.length < task.requiredHeadcount;
 
                   return (
                     <div
@@ -375,16 +464,32 @@ export default function CalendarPage() {
                         width: `calc(${widthPercent}% - 4px)`,
                         backgroundColor: `${color}20`,
                         borderLeft: `3px solid ${color}`,
-                        color: color,
+                        ...(isUnderstaffed
+                          ? {
+                              outline: "1.5px dashed #F59E0B",
+                              outlineOffset: "-1px",
+                            }
+                          : {}),
                       }}
-                      onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                      onClick={() =>
+                        setSelectedTask(
+                          selectedTask?.id === task.id ? null : task
+                        )
+                      }
                     >
-                      <div className="font-medium truncate" style={{ color }}>
+                      <div
+                        className="font-medium truncate"
+                        style={{ color }}
+                      >
                         {task.title}
                       </div>
                       {parseFloat(pos.height) > 8 && (
-                        <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>
-                          {task.assignments.length}/{task.requiredHeadcount} staff
+                        <div
+                          className="truncate text-muted-foreground"
+                          style={{ fontSize: "10px" }}
+                        >
+                          {task.assignments.length}/{task.requiredHeadcount}{" "}
+                          staff
                         </div>
                       )}
                     </div>
@@ -397,7 +502,7 @@ export default function CalendarPage() {
       </div>
 
       {/* Legend */}
-      <div className="mt-4 flex flex-wrap gap-4">
+      <div className="mt-4 flex flex-wrap items-center gap-4">
         {departments.map((dept) => (
           <div key={dept.id} className="flex items-center gap-2 text-sm">
             <div
@@ -407,6 +512,32 @@ export default function CalendarPage() {
             <span className="text-muted-foreground">{dept.name}</span>
           </div>
         ))}
+        {showCoverage && (
+          <>
+            <div className="h-4 border-l mx-1" />
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className="inline-block h-3 w-3 rounded"
+                style={{ backgroundColor: getCoverageTint(4, isDark) }}
+              />
+              4+
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className="inline-block h-3 w-3 rounded"
+                style={{ backgroundColor: getCoverageTint(2, isDark) }}
+              />
+              1-3
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className="inline-block h-3 w-3 rounded"
+                style={{ backgroundColor: getCoverageTint(0, isDark) }}
+              />
+              None
+            </div>
+          </>
+        )}
       </div>
 
       {/* Task detail panel */}
@@ -419,7 +550,8 @@ export default function CalendarPage() {
                   <div
                     className="h-3 w-3 rounded-full"
                     style={{
-                      backgroundColor: selectedTask.department.color || "#94A3B8",
+                      backgroundColor:
+                        selectedTask.department.color || "#94A3B8",
                     }}
                   />
                 )}
@@ -456,12 +588,16 @@ export default function CalendarPage() {
             </div>
             <div className="text-sm">
               <span className="text-muted-foreground">Staff: </span>
-              {selectedTask.assignments.length}/{selectedTask.requiredHeadcount}
+              {selectedTask.assignments.length}/
+              {selectedTask.requiredHeadcount}
               {selectedTask.assignments.length > 0 && (
                 <span>
                   {" — "}
                   {selectedTask.assignments
-                    .map((a) => `${a.membership.user.name || "Unnamed"} (${a.status})`)
+                    .map(
+                      (a) =>
+                        `${a.membership.user.name || "Unnamed"} (${a.status})`
+                    )
                     .join(", ")}
                 </span>
               )}

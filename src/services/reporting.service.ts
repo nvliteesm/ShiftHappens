@@ -491,10 +491,10 @@ export class ReportingService {
       departmentIds
     );
 
-    // Group by date string
+    // Group by date string (local timezone)
     const countMap = new Map<string, number>();
     for (const t of timestamps) {
-      const dateKey = t.completedAt.toISOString().split("T")[0];
+      const dateKey = this.formatLocalDate(t.completedAt);
       countMap.set(dateKey, (countMap.get(dateKey) || 0) + 1);
     }
 
@@ -504,7 +504,7 @@ export class ReportingService {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
-      const dateKey = date.toISOString().split("T")[0];
+      const dateKey = this.formatLocalDate(date);
 
       days.push({
         date: dateKey,
@@ -864,5 +864,14 @@ export class ReportingService {
         (r.clockOutTime.getTime() - r.clockInTime.getTime()) / (1000 * 60 * 60);
     }
     return Math.round(total * 10) / 10;
+  }
+
+  /**
+   * Formats a Date as YYYY-MM-DD using local timezone.
+   * Avoids toISOString() which converts to UTC and can shift the date
+   * in timezones ahead of UTC (e.g. SGT/UTC+8).
+   */
+  private formatLocalDate(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 }

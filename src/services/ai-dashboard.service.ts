@@ -1,11 +1,12 @@
 /**
  * AI Dashboard Service (Control Layer)
- * 
+ *
  * Generates AI-powered dashboard insights including:
  * - Natural language workforce summary (US-67)
  * - Proactive staffing alerts (US-68)
  * - Rejection pattern analysis (US-70)
- * 
+ * - Ranked actionable recommendations (Phase 8)
+ *
  * Uses the same AI provider infrastructure (Groq/Gemini/fallback)
  * as the allocation service. All insights are advisory — the
  * admin always has final decision authority.
@@ -27,9 +28,9 @@ interface DashboardData {
   openTasks: number;
   inProgressTasks: number;
   unassignedTasks: number;
-  understaffedTasks: { title: string; department: string; required: number; assigned: number; needed: number }[];
+  understaffedTasks: { title: string; department: string; required: number; assigned: number; needed: number; taskId: string }[];
   staffNearLimit: { name: string; hours: number }[];
-  recentRejections: { staffName: string; count: number; reasons: string[] }[];
+  recentRejections: { staffName: string; membershipId: string; count: number; reasons: string[] }[];
   completedToday: number;
   pendingCertifications: number;
   departmentCount: number;
@@ -37,12 +38,27 @@ interface DashboardData {
   maxHours: number;
 }
 
+/** A single ranked recommendation with action context */
+export interface AIRecommendation {
+  priority: number;
+  title: string;
+  reasoning: string;
+  actionType: "quick_assign" | "edit_availability" | "review_certs" | "view_tasks";
+  actionUrl: string;
+}
+
+/** Response from generateRecommendations */
+export interface AIRecommendationsResponse {
+  recommendations: AIRecommendation[];
+  footer: string;
+}
+
 export class AIDashboardService {
   private taskRepo = new TaskRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
 
-  /** Shared system prompt used by all AI providers for consistency */
+  /** Shared system prompt for the legacy insights endpoint */
   private systemPrompt = `You are a workforce management AI assistant. Analyze the organizational data and provide insights.
 You MUST respond with ONLY valid JSON matching this structure:
 {
@@ -56,6 +72,320 @@ CRITICAL RULES:
 - If there are no rejections in the data, rejectionPatterns MUST be an empty array [].
 - If there are no issues, say so positively. Do not manufacture problems.
 - Maximum 5 alerts. Keep alerts actionable and based on real data.`;
+
+  /** System prompt for ranked recommendations */
+  private recommendationPrompt = `You are a workforce management AI. Analyze the data and produce 3-5 ranked, actionable recommendations.
+You MUST respond with ONLY valid JSON matching this structure:
+{
+  "recommendations": [
+    {
+      "title": "Short action (e.g., 'Assign Casey Brown to Lunch service')",
+      "reasoning": "Data-backed reason (e.g., 'Available tomorrow, Food Safety certified, lowest utilization')",
+      "actionType": "quick_assign|edit_availability|review_certs|view_tasks"
+    }
+  ]
+}
+CRITICAL RULES:
+- Be specific — use actual staff names, task names, and numbers from the data.
+- NEVER invent names, tasks, or numbers not in the input.
+- Order by impact (most important first).
+- actionType must be one of: quick_assign, edit_availability, review_certs, view_tasks.
+- Maximum 5 recommendations.
+- If everything looks good, return 1-2 positive observations.`;
+
+  // ================================================================
+  // Ranked Recommendations (Phase 8 — new dashboard)
+  // ================================================================
+
+  /**
+   * Generates ranked, actionable recommendations for the admin dashboard.
+   * Each recommendation includes a title, reasoning, and action type.
+   * Falls back to algorithmic analysis if AI providers fail.
+   */
+  async generateRecommendations(organizationId: string): Promise<AIRecommendationsResponse> {
+    const data = await this.gatherDashboardData(organizationId);
+
+    if (data.totalTasks === 0 && data.activeStaff === 0) {
+      return {
+        recommendations: [{
+          priority: 1,
+          title: "Get started",
+          reasoning: "Create departments, invite staff, and add tasks to see AI-powered recommendations.",
+          actionType: "view_tasks",
+          actionUrl: `/org/${organizationId}/departments`,
+        }],
+        footer: "No data to analyze yet",
+      };
+    }
+
+    const prompt = this.buildRecommendationPrompt(data);
+    const result = await this.callAIForRecommendations(prompt, data, organizationId);
+    return result;
+  }
+
+  /** Builds the data prompt for recommendation generation */
+  private buildRecommendationPrompt(data: DashboardData): string {
+    let prompt = `Analyze this workforce data and provide ranked recommendations:\n\n`;
+    prompt += `OVERVIEW: ${data.activeStaff} staff, ${data.totalTasks} active tasks, ${data.departmentCount} departments\n`;
+    prompt += `${data.unassignedTasks} unassigned, ${data.completedToday} completed today, max ${data.maxHours}h/staff\n\n`;
+
+    if (data.understaffedTasks.length > 0) {
+      prompt += `UNDERSTAFFED TASKS:\n`;
+      for (const t of data.understaffedTasks) {
+        prompt += `- "${t.title}" (${t.department}): ${t.assigned}/${t.required} staff\n`;
+      }
+      prompt += `\n`;
+    }
+
+    if (data.staffNearLimit.length > 0) {
+      prompt += `STAFF NEAR HOUR LIMITS:\n`;
+      for (const s of data.staffNearLimit) {
+        prompt += `- ${s.name}: ${s.hours.toFixed(1)}h worked (limit: ${data.maxHours}h)\n`;
+      }
+      prompt += `\n`;
+    }
+
+    if (data.recentRejections.length > 0) {
+      prompt += `REJECTION PATTERNS (7 days):\n`;
+      for (const r of data.recentRejections) {
+        prompt += `- ${r.staffName}: ${r.count} rejections. Reasons: ${r.reasons.join(", ") || "unspecified"}\n`;
+      }
+      prompt += `\n`;
+    }
+
+    if (data.pendingCertifications > 0) {
+      prompt += `PENDING: ${data.pendingCertifications} certifications awaiting verification\n\n`;
+    }
+
+    prompt += `DEPARTMENTS:\n`;
+    for (const d of data.departments) {
+      prompt += `- ${d.name}: ${d.taskCount} tasks, ${d.memberCount} staff\n`;
+    }
+
+    return prompt;
+  }
+
+  /** Calls AI providers for recommendations with failover to algorithmic */
+  private async callAIForRecommendations(
+    prompt: string,
+    data: DashboardData,
+    organizationId: string
+  ): Promise<AIRecommendationsResponse> {
+    const groqKey = process.env.GROQ_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    // Try Groq
+    if (groqKey) {
+      try {
+        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${groqKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "llama-3.1-8b-instant",
+            messages: [
+              { role: "system", content: this.recommendationPrompt },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0,
+            max_tokens: 800,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          const content = result.choices[0]?.message?.content || "";
+          return this.parseRecommendationResponse(content, data, organizationId);
+        }
+      } catch (error) {
+        console.error("[AI Recommendations] Groq failed:", error);
+      }
+    }
+
+    // Try Gemini
+    if (geminiKey) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: `${this.recommendationPrompt}\n\n${prompt}` }],
+              }],
+              generationConfig: { temperature: 0, maxOutputTokens: 800 },
+            }),
+          }
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          const content = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          return this.parseRecommendationResponse(content, data, organizationId);
+        }
+      } catch (error) {
+        console.error("[AI Recommendations] Gemini failed:", error);
+      }
+    }
+
+    // Algorithmic fallback
+    return this.generateAlgorithmicRecommendations(data, organizationId);
+  }
+
+  /** Parses AI recommendation response with fallback */
+  private parseRecommendationResponse(
+    content: string,
+    data: DashboardData,
+    organizationId: string
+  ): AIRecommendationsResponse {
+    try {
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+
+      if (!Array.isArray(parsed.recommendations)) {
+        throw new Error("Missing recommendations array");
+      }
+
+      const validActionTypes = ["quick_assign", "edit_availability", "review_certs", "view_tasks"];
+      const recommendations: AIRecommendation[] = parsed.recommendations
+        .slice(0, 5)
+        .map((r: { title?: string; reasoning?: string; actionType?: string }, i: number) => ({
+          priority: i + 1,
+          title: r.title || "Review dashboard",
+          reasoning: r.reasoning || "",
+          actionType: validActionTypes.includes(r.actionType || "")
+            ? r.actionType
+            : "view_tasks",
+          actionUrl: this.getActionUrl(
+            (r.actionType as AIRecommendation["actionType"]) || "view_tasks",
+            organizationId
+          ),
+        }));
+
+      return {
+        recommendations,
+        footer: `Based on analysis of ${data.totalTasks} tasks, ${data.activeStaff} staff schedules, and 7 days of assignment history`,
+      };
+    } catch {
+      console.error("[AI Recommendations] Parse failed, using algorithmic fallback");
+      return this.generateAlgorithmicRecommendations(data, organizationId);
+    }
+  }
+
+  /**
+   * Generates recommendations using rule-based analysis.
+   * Prioritizes: understaffed tasks → rejection patterns → dept imbalances → certs.
+   */
+  private generateAlgorithmicRecommendations(
+    data: DashboardData,
+    organizationId: string
+  ): AIRecommendationsResponse {
+    const recommendations: AIRecommendation[] = [];
+    let priority = 1;
+
+    // 1. Understaffed tasks — most urgent
+    for (const task of data.understaffedTasks.slice(0, 2)) {
+      recommendations.push({
+        priority: priority++,
+        title: `Assign staff to ${task.title}`,
+        reasoning: `${task.department} — needs ${task.needed} more staff (${task.assigned}/${task.required} assigned)`,
+        actionType: "view_tasks",
+        actionUrl: `/org/${organizationId}/tasks`,
+      });
+    }
+
+    // 2. Rejection patterns — schedule conflicts suggest availability mismatch
+    for (const r of data.recentRejections.slice(0, 2)) {
+      const scheduleConflicts = r.reasons.filter(
+        (reason) => reason === "schedule_conflict"
+      ).length;
+      const hasScheduleIssue =
+        scheduleConflicts > 0 || r.reasons.includes("schedule_conflict");
+
+      if (hasScheduleIssue) {
+        recommendations.push({
+          priority: priority++,
+          title: `Update ${r.staffName}'s availability`,
+          reasoning: `${r.count} rejections recently — schedule conflicts suggest their availability doesn't match assigned shifts`,
+          actionType: "edit_availability",
+          actionUrl: `/org/${organizationId}/availability`,
+        });
+      } else {
+        recommendations.push({
+          priority: priority++,
+          title: `Review ${r.staffName}'s rejection pattern`,
+          reasoning: `${r.count} rejections recently. Top reason: ${r.reasons[0] || "unspecified"}`,
+          actionType: "view_tasks",
+          actionUrl: `/org/${organizationId}/tasks`,
+        });
+      }
+    }
+
+    // 3. Departments with tasks but no staff
+    for (const dept of data.departments) {
+      if (dept.taskCount > 0 && dept.memberCount === 0) {
+        recommendations.push({
+          priority: priority++,
+          title: `Assign staff to ${dept.name}`,
+          reasoning: `${dept.taskCount} tasks but 0 staff members — department cannot operate`,
+          actionType: "view_tasks",
+          actionUrl: `/org/${organizationId}/members`,
+        });
+      }
+    }
+
+    // 4. Pending certifications
+    if (data.pendingCertifications > 0) {
+      recommendations.push({
+        priority: priority++,
+        title: `Review pending certifications`,
+        reasoning: `${data.pendingCertifications} certification${data.pendingCertifications !== 1 ? "s" : ""} awaiting verification`,
+        actionType: "review_certs",
+        actionUrl: `/org/${organizationId}/certifications`,
+      });
+    }
+
+    // 5. Positive observation if nothing needs attention
+    if (recommendations.length === 0) {
+      recommendations.push({
+        priority: 1,
+        title: "All looking good",
+        reasoning: `${data.totalTasks} tasks running across ${data.departmentCount} departments with ${data.activeStaff} staff. No issues detected.`,
+        actionType: "view_tasks",
+        actionUrl: `/org/${organizationId}/tasks`,
+      });
+    }
+
+    return {
+      recommendations: recommendations.slice(0, 5),
+      footer: `Based on analysis of ${data.totalTasks} tasks, ${data.activeStaff} staff schedules, and 7 days of assignment history`,
+    };
+  }
+
+  /** Maps action types to URL paths */
+  private getActionUrl(
+    actionType: AIRecommendation["actionType"],
+    organizationId: string
+  ): string {
+    switch (actionType) {
+      case "quick_assign":
+      case "view_tasks":
+        return `/org/${organizationId}/tasks`;
+      case "edit_availability":
+        return `/org/${organizationId}/availability`;
+      case "review_certs":
+        return `/org/${organizationId}/certifications`;
+      default:
+        return `/org/${organizationId}/tasks`;
+    }
+  }
+
+  // ================================================================
+  // Legacy Insights (backward compatibility — /dashboard-insights)
+  // ================================================================
 
   /**
    * Generates a comprehensive dashboard insight by gathering
@@ -93,7 +423,7 @@ CRITICAL RULES:
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${groqKey}`,
+            Authorization: `Bearer ${groqKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -168,8 +498,6 @@ CRITICAL RULES:
 
   /**
    * Generates insights without AI using pure data analysis.
-   * Provides the same data structure as AI but without
-   * natural language flair — factual and rule-based.
    */
   private generateAlgorithmicInsights(data: DashboardData): DashboardInsight {
     const alerts: { type: "warning" | "info" | "success"; message: string }[] = [];
@@ -209,7 +537,6 @@ CRITICAL RULES:
       });
     }
 
-    // Only include rejection patterns when there's real data
     const rejectionPatterns = data.recentRejections.map((r) => ({
       staffName: r.staffName,
       pattern: `Rejected ${r.count} task${r.count > 1 ? "s" : ""} recently. ${r.reasons.length > 0 ? `Common reason: "${r.reasons[0]}"` : ""}`,
@@ -233,7 +560,7 @@ CRITICAL RULES:
     };
   }
 
-  /** Builds the data prompt sent to AI providers */
+  /** Builds the data prompt sent to AI providers (legacy) */
   private buildPrompt(data: DashboardData): string {
     let prompt = `Analyze this workforce data and provide insights:\n\n`;
     prompt += `ORGANIZATION OVERVIEW:\n`;
@@ -281,6 +608,10 @@ CRITICAL RULES:
     return prompt;
   }
 
+  // ================================================================
+  // Data Gathering (shared by both endpoints)
+  // ================================================================
+
   /**
    * Gathers all data needed for dashboard analysis.
    */
@@ -304,6 +635,7 @@ CRITICAL RULES:
         required: t.requiredHeadcount,
         assigned: t.assignments.length,
         needed: t.requiredHeadcount - t.assignments.length,
+        taskId: t.id,
       }));
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -348,12 +680,13 @@ CRITICAL RULES:
       },
     });
 
-    const rejectionMap: Record<string, { staffName: string; count: number; reasons: string[] }> = {};
+    const rejectionMap: Record<string, { staffName: string; membershipId: string; count: number; reasons: string[] }> = {};
     for (const r of rejections) {
       const key = r.membershipId;
       if (!rejectionMap[key]) {
         rejectionMap[key] = {
           staffName: r.membership.user.name || r.membership.user.email,
+          membershipId: r.membershipId,
           count: 0,
           reasons: [],
         };

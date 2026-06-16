@@ -102,6 +102,19 @@ interface DashboardData {
   rejectionTrends: RejectionTrendItem[] | null;
 }
 
+interface AIRecommendation {
+  priority: number;
+  title: string;
+  reasoning: string;
+  actionType: string;
+  actionUrl: string;
+}
+
+interface AIRecommendationsData {
+  recommendations: AIRecommendation[];
+  footer: string;
+}
+
 // ============================================================
 // Skeleton loader
 // ============================================================
@@ -173,9 +186,12 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aiRecs, setAiRecs] = useState<AIRecommendationsData | null>(null);
+  const [aiLoading, setAiLoading] = useState(true);
 
   useEffect(() => {
     fetchDashboard();
+    fetchAIRecommendations();
   }, [orgId]);
 
   async function fetchDashboard() {
@@ -193,6 +209,22 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
       setError("Failed to load dashboard");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchAIRecommendations() {
+    try {
+      setAiLoading(true);
+      const res = await fetch(
+        `/api/organizations/${orgId}/dashboard/ai-recommendations`
+      );
+      if (res.ok) {
+        setAiRecs(await res.json());
+      }
+    } catch {
+      // AI recommendations are non-critical — fail silently
+    } finally {
+      setAiLoading(false);
     }
   }
 
@@ -282,8 +314,73 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
         </div>
       </div>
 
-      {/* ---- Section 5: AI Recommendations (placeholder) ---- */}
-      {/* Will be populated from /dashboard/ai-recommendations endpoint */}
+      {/* ---- Section 5: AI Recommendations ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700">
+              ✦ AI Insights
+            </span>
+            Recommendations
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {aiLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-12 rounded bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : !aiRecs || aiRecs.recommendations.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No recommendations at this time
+            </p>
+          ) : (
+            <div>
+              <div className="space-y-3">
+                {aiRecs.recommendations.map((rec) => (
+                  <div
+                    key={rec.priority}
+                    className="flex items-start justify-between gap-3 text-sm"
+                  >
+                    <div className="flex items-start gap-2 min-w-0">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                        {rec.priority}
+                      </span>
+                      <div>
+                        <p className="font-medium">{rec.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {rec.reasoning}
+                        </p>
+                      </div>
+                    </div>
+                    <Link href={rec.actionUrl}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                      >
+                        {rec.actionType === "quick_assign"
+                          ? "Assign"
+                          : rec.actionType === "edit_availability"
+                          ? "Edit"
+                          : rec.actionType === "review_certs"
+                          ? "Review"
+                          : "View"}
+                      </Button>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+              {aiRecs.footer && (
+                <p className="mt-4 text-xs text-muted-foreground text-center">
+                  {aiRecs.footer}
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

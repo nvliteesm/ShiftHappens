@@ -31,6 +31,7 @@ const MODERATE_PATTERNS = [
   "/tasks/suggest",
   "/tasks/auto-allocate",
   "/dashboard-insights",
+  "/ai-recommendations",
   "/tasks/parse",
   "/api/platform",
 ];

@@ -1,8 +1,9 @@
 /**
  * Members Management Page (Boundary Layer)
- * 
- * Company Admin can view all org members, invite new users,
- * update roles, assign departments, and activate/deactivate members.
+ *
+ * Company Admin can view all org members in a table,
+ * invite new users, update roles, assign departments,
+ * and activate/deactivate members.
  */
 "use client";
 
@@ -42,6 +43,44 @@ interface Invitation {
   invitedBy: { name: string | null; email: string };
 }
 
+function RoleBadge({ role }: { role: string }) {
+  const styles: Record<string, string> = {
+    company_admin:
+      "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+    manager:
+      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    staff:
+      "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  };
+  const labels: Record<string, string> = {
+    company_admin: "Admin",
+    manager: "Manager",
+    staff: "Staff",
+  };
+  return (
+    <span
+      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles[role] || styles.staff}`}
+    >
+      {labels[role] || role}
+    </span>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      <span
+        className={`inline-block h-2 w-2 rounded-full ${
+          status === "active"
+            ? "bg-green-500"
+            : "bg-red-400"
+        }`}
+      />
+      <span className="text-muted-foreground capitalize">{status}</span>
+    </span>
+  );
+}
+
 export default function MembersPage() {
   const params = useParams();
   const orgId = params.orgId as string;
@@ -60,8 +99,7 @@ export default function MembersPage() {
   async function fetchMembers() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/members`);
-      const data = await res.json();
-      setMembers(data);
+      setMembers(await res.json());
     } catch {
       setError("Failed to load members");
     } finally {
@@ -72,10 +110,9 @@ export default function MembersPage() {
   async function fetchInvitations() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`);
-      const data = await res.json();
-      setInvitations(data);
+      setInvitations(await res.json());
     } catch {
-      // Silently fail — invitations are secondary
+      // Invitations are secondary
     }
   }
 
@@ -114,19 +151,16 @@ export default function MembersPage() {
 
   async function onToggleStatus(userId: string) {
     setError(null);
-
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/members/${userId}/toggle-status`,
         { method: "POST" }
       );
-
       if (!res.ok) {
         const result = await res.json();
         setError(result.error || "Failed to update status");
         return;
       }
-
       fetchMembers();
     } catch {
       setError("Something went wrong");
@@ -135,7 +169,6 @@ export default function MembersPage() {
 
   async function onUpdateRole(userId: string, newRole: string) {
     setError(null);
-
     try {
       const res = await fetch(
         `/api/organizations/${orgId}/members/${userId}`,
@@ -145,37 +178,46 @@ export default function MembersPage() {
           body: JSON.stringify({ role: newRole }),
         }
       );
-
       if (!res.ok) {
         const result = await res.json();
         setError(result.error || "Failed to update role");
         return;
       }
-
       fetchMembers();
     } catch {
       setError("Something went wrong");
     }
   }
 
+  const activeMembers = members.filter((m) => m.status === "active");
+  const inactiveMembers = members.filter((m) => m.status !== "active");
+  const pendingInvitations = invitations.filter((i) => !i.acceptedAt);
+
   if (loading) return <p>Loading...</p>;
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Members</h2>
+        <div>
+          <h2 className="text-2xl font-bold">Members</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {activeMembers.length} active · {inactiveMembers.length} inactive
+            {pendingInvitations.length > 0 &&
+              ` · ${pendingInvitations.length} pending`}
+          </p>
+        </div>
         <Button onClick={() => setShowInvite(!showInvite)}>
           {showInvite ? "Cancel" : "Invite User"}
         </Button>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
+        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
           {error}
         </div>
       )}
       {success && (
-        <div className="mb-4 rounded-md bg-green-50 p-3 text-sm text-green-600">
+        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">
           {success}
         </div>
       )}
@@ -191,26 +233,29 @@ export default function MembersPage() {
           </CardHeader>
           <form onSubmit={onInviteUser}>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="invite-email">Email</Label>
-                <Input
-                  id="invite-email"
-                  name="email"
-                  type="email"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="invite-role">Role</Label>
-                <select
-                  id="invite-role"
-                  name="role"
-                  className="w-full rounded-md border px-3 py-2 text-sm"
-                  defaultValue="staff"
-                >
-                  <option value="staff">Staff</option>
-                  <option value="manager">Manager</option>
-                </select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="invite-email">Email</Label>
+                  <Input
+                    id="invite-email"
+                    name="email"
+                    type="email"
+                    placeholder="name@example.com"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invite-role">Role</Label>
+                  <select
+                    id="invite-role"
+                    name="role"
+                    className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                    defaultValue="staff"
+                  >
+                    <option value="staff">Staff</option>
+                    <option value="manager">Manager</option>
+                  </select>
+                </div>
               </div>
               <Button type="submit">Send Invitation</Button>
             </CardContent>
@@ -218,92 +263,108 @@ export default function MembersPage() {
         </Card>
       )}
 
-      {/* Members list */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">
-          Active Members ({members.filter((m) => m.status === "active").length})
-        </h3>
-        {members.map((member) => (
-          <Card key={member.id}>
-            <CardContent className="flex items-center justify-between pt-6">
-              <div>
-                <p className="font-medium">
-                  {member.user.name || "Unnamed"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {member.user.email}
-                </p>
-                <div className="mt-1 flex gap-2">
-                  <span
-                    className={`inline-block rounded-full px-2 py-0.5 text-xs ${
-                      member.status === "active"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {member.status}
-                  </span>
-                  <span className="inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                    {member.role}
-                  </span>
-                </div>
-                {member.departmentMemberships.length > 0 && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Departments:{" "}
-                    {member.departmentMemberships
-                      .map((dm) => dm.department.name)
-                      .join(", ")}
-                  </p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <select
-                  className="rounded-md border px-2 py-1 text-sm"
-                  value={member.role}
-                  onChange={(e) =>
-                    onUpdateRole(member.user.id, e.target.value)
-                  }
-                >
-                  <option value="staff">Staff</option>
-                  <option value="manager">Manager</option>
-                  <option value="company_admin">Admin</option>
-                </select>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onToggleStatus(member.user.id)}
-                >
-                  {member.status === "active" ? "Deactivate" : "Activate"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      {/* Members table */}
+      <div className="rounded-lg border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/30">
+              <th className="text-left font-medium px-4 py-3 text-muted-foreground">Name</th>
+              <th className="text-left font-medium px-4 py-3 text-muted-foreground">Role</th>
+              <th className="text-left font-medium px-4 py-3 text-muted-foreground">Department</th>
+              <th className="text-left font-medium px-4 py-3 text-muted-foreground">Status</th>
+              <th className="text-right font-medium px-4 py-3 text-muted-foreground">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr
+                key={member.id}
+                className={`border-b last:border-b-0 transition-colors hover:bg-muted/20 ${
+                  member.status !== "active" ? "opacity-50" : ""
+                }`}
+              >
+                <td className="px-4 py-3">
+                  <p className="font-medium">{member.user.name || "Unnamed"}</p>
+                  <p className="text-xs text-muted-foreground">{member.user.email}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <RoleBadge role={member.role} />
+                </td>
+                <td className="px-4 py-3">
+                  {member.departmentMemberships.length > 0 ? (
+                    <span className="text-sm">
+                      {member.departmentMemberships
+                        .map((dm) => dm.department.name)
+                        .join(", ")}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <StatusDot status={member.status} />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <select
+                      className="rounded-md border px-2 py-1 text-xs bg-background"
+                      value={member.role}
+                      onChange={(e) =>
+                        onUpdateRole(member.user.id, e.target.value)
+                      }
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="manager">Manager</option>
+                      <option value="company_admin">Admin</option>
+                    </select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => onToggleStatus(member.user.id)}
+                    >
+                      {member.status === "active" ? "Deactivate" : "Activate"}
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Pending invitations */}
-      {invitations.filter((i) => !i.acceptedAt).length > 0 && (
-        <div className="mt-8 space-y-4">
-          <h3 className="text-lg font-semibold">Pending Invitations</h3>
-          {invitations
-            .filter((i) => !i.acceptedAt)
-            .map((invitation) => (
-              <Card key={invitation.id}>
-                <CardContent className="flex items-center justify-between pt-6">
-                  <div>
-                    <p className="font-medium">{invitation.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Role: {invitation.role} · Invited by{" "}
+      {pendingInvitations.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-lg font-semibold mb-3">Pending Invitations</h3>
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Email</th>
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Role</th>
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Invited by</th>
+                  <th className="text-right font-medium px-4 py-3 text-muted-foreground">Expires</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingInvitations.map((invitation) => (
+                  <tr key={invitation.id} className="border-b last:border-b-0">
+                    <td className="px-4 py-3 font-medium">{invitation.email}</td>
+                    <td className="px-4 py-3">
+                      <RoleBadge role={invitation.role} />
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">
                       {invitation.invitedBy.name || invitation.invitedBy.email}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    Expires{" "}
-                    {new Date(invitation.expires).toLocaleDateString()}
-                  </span>
-                </CardContent>
-              </Card>
-            ))}
+                    </td>
+                    <td className="px-4 py-3 text-right text-muted-foreground">
+                      {new Date(invitation.expires).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

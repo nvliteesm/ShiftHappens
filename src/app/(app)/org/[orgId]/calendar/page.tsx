@@ -1,22 +1,13 @@
 /**
  * Calendar View Page (Boundary Layer)
  *
- * Weekly calendar showing scheduled tasks as colored blocks
- * by department, with a heatmap coverage layer showing staff
- * availability per time slot.
+ * Weekly + Day calendar with heatmap coverage layer.
+ * Week view: overview with heatmap tints and coverage counts.
+ * Day view: full-width single day with staff availability panel.
+ * Operating hours are configurable via company settings.
  *
- * Two layers:
- * 1. Heatmap background — tint each cell by staff availability count
- * 2. Task blocks — department-colored blocks (existing)
- *
- * Features:
- * - Department color coding with legend
- * - Side-by-side rendering of overlapping tasks
- * - Coverage heatmap with counts per cell
- * - Coverage / Tasks-only toggle
- * - Department filter
- * - Current time indicator
- * - Unscheduled tasks notice
+ * Click a day header to drill into day view.
+ * "Back to week" returns to the weekly overview.
  */
 "use client";
 
@@ -52,19 +43,36 @@ interface CoverageCell {
   count: number;
 }
 
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
+interface StaffSchedule {
+  membershipId: string;
+  name: string;
+  schedules: {
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    isAvailable: boolean;
+  }[];
+}
+
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() - day);
+  d.setDate(d.getDate() - d.getDay());
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatFullDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function getWeekDates(weekStart: Date): Date[] {
@@ -75,7 +83,13 @@ function getWeekDates(weekStart: Date): Date[] {
   });
 }
 
-/** Returns a tint color based on staff coverage count */
+function formatHourLabel(hour: number): string {
+  if (hour === 0) return "12 AM";
+  if (hour < 12) return `${hour} AM`;
+  if (hour === 12) return "12 PM";
+  return `${hour - 12} PM`;
+}
+
 function getCoverageTint(count: number, isDark: boolean): string {
   if (count >= 4) return isDark ? "rgba(34,197,94,0.12)" : "rgba(34,197,94,0.08)";
   if (count === 3) return isDark ? "rgba(34,197,94,0.07)" : "rgba(34,197,94,0.04)";
@@ -83,33 +97,18 @@ function getCoverageTint(count: number, isDark: boolean): string {
   return isDark ? "rgba(239,68,68,0.10)" : "rgba(239,68,68,0.05)";
 }
 
-/**
- * Calculates column positions for overlapping tasks.
- */
-function calculateOverlapColumns(
-  dayTasks: Task[]
-): Map<string, { column: number; totalColumns: number }> {
+function calculateOverlapColumns(dayTasks: Task[]): Map<string, { column: number; totalColumns: number }> {
   const result = new Map<string, { column: number; totalColumns: number }>();
   if (dayTasks.length === 0) return result;
-
-  const sorted = [...dayTasks].sort(
-    (a, b) =>
-      new Date(a.scheduledStart!).getTime() -
-      new Date(b.scheduledStart!).getTime()
-  );
-
+  const sorted = [...dayTasks].sort((a, b) => new Date(a.scheduledStart!).getTime() - new Date(b.scheduledStart!).getTime());
   const groups: Task[][] = [];
   let currentGroup: Task[] = [sorted[0]];
   let groupEnd = new Date(sorted[0].scheduledEnd!).getTime();
-
   for (let i = 1; i < sorted.length; i++) {
     const taskStart = new Date(sorted[i].scheduledStart!).getTime();
     if (taskStart < groupEnd) {
       currentGroup.push(sorted[i]);
-      groupEnd = Math.max(
-        groupEnd,
-        new Date(sorted[i].scheduledEnd!).getTime()
-      );
+      groupEnd = Math.max(groupEnd, new Date(sorted[i].scheduledEnd!).getTime());
     } else {
       groups.push(currentGroup);
       currentGroup = [sorted[i]];
@@ -117,22 +116,19 @@ function calculateOverlapColumns(
     }
   }
   groups.push(currentGroup);
-
   for (const group of groups) {
-    const totalColumns = group.length;
-    group.forEach((task, column) => {
-      result.set(task.id, { column, totalColumns });
-    });
+    group.forEach((task, column) => result.set(task.id, { column, totalColumns: group.length }));
   }
-
   return result;
 }
 
 export default function CalendarPage() {
   const params = useParams();
   const orgId = params.orgId as string;
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [coverage, setCoverage] = useState<CoverageCell[]>([]);
+  const [staffData, setStaffData] = useState<StaffSchedule[]>([]);
   const [showCoverage, setShowCoverage] = useState(true);
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -141,23 +137,26 @@ export default function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Detect dark mode for heatmap tint colors
+  const [viewMode, setViewMode] = useState<"week" | "day">("week");
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  const [opStart, setOpStart] = useState(6);
+  const [opEnd, setOpEnd] = useState(22);
+
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
-    const check = () =>
-      setIsDark(document.documentElement.classList.contains("dark"));
+    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
     check();
     const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
     fetchTasks();
     fetchCoverage();
+    fetchStaff();
+    fetchSettings();
   }, [orgId]);
 
   useEffect(() => {
@@ -166,9 +165,7 @@ export default function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    function onFocus() {
-      fetchTasks();
-    }
+    function onFocus() { fetchTasks(); }
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [orgId]);
@@ -176,93 +173,75 @@ export default function CalendarPage() {
   async function fetchTasks() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`);
-      if (!res.ok) {
-        setError("Failed to load tasks");
-        return;
-      }
+      if (!res.ok) { setError("Failed to load tasks"); return; }
       setTasks(await res.json());
       setError(null);
-    } catch {
-      setError("Failed to load tasks. Please try refreshing the page.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Failed to load tasks"); } finally { setLoading(false); }
   }
 
   async function fetchCoverage() {
     try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/calendar/coverage`
-      );
+      const res = await fetch(`/api/organizations/${orgId}/calendar/coverage`);
+      if (res.ok) setCoverage(await res.json());
+    } catch { /* non-critical */ }
+  }
+
+  async function fetchStaff() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/calendar/staff`);
+      if (res.ok) setStaffData(await res.json());
+    } catch { /* non-critical */ }
+  }
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/settings`);
       if (res.ok) {
-        setCoverage(await res.json());
+        const data = await res.json();
+        if (data.operatingHoursStart !== undefined) setOpStart(data.operatingHoursStart);
+        if (data.operatingHoursEnd !== undefined) setOpEnd(data.operatingHoursEnd);
       }
-    } catch {
-      // Coverage is non-critical — fail silently
-    }
+    } catch { /* use defaults */ }
   }
 
-  /** Get coverage count for a specific day and hour */
+  const HOURS = Array.from({ length: opEnd - opStart }, (_, i) => i + opStart);
+  const totalHours = HOURS.length;
+
   function getCoverageCount(dayOfWeek: number, hour: number): number {
-    const cell = coverage.find(
-      (c) => c.dayOfWeek === dayOfWeek && c.hour === hour
-    );
-    return cell?.count ?? 0;
+    return coverage.find((c) => c.dayOfWeek === dayOfWeek && c.hour === hour)?.count ?? 0;
   }
 
-  function prevWeek() {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() - 7);
-    setWeekStart(d);
-  }
+  function prevWeek() { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); }
+  function nextWeek() { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); }
+  function goToday() { setWeekStart(getWeekStart(new Date())); setViewMode("week"); }
 
-  function nextWeek() {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 7);
-    setWeekStart(d);
-  }
-
-  function goToday() {
-    const todayWeek = getWeekStart(new Date());
-    if (todayWeek.getTime() === weekStart.getTime()) return;
-    setWeekStart(todayWeek);
-  }
+  function openDayView(date: Date) { setSelectedDate(date); setViewMode("day"); setSelectedTask(null); }
+  function prevDay() { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d); }
+  function nextDay() { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d); }
 
   const weekDates = getWeekDates(weekStart);
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 7);
+  const today = new Date();
+  const todayStr = today.toDateString();
 
   const departments = Array.from(
-    new Map(
-      tasks
-        .filter((t) => t.department)
-        .map((t) => [t.department!.id, t.department!])
-    ).values()
+    new Map(tasks.filter((t) => t.department).map((t) => [t.department!.id, t.department!])).values()
   ).sort((a, b) => a.name.localeCompare(b.name));
 
-  const filteredTasks = filterDept
-    ? tasks.filter((t) => t.department?.id === filterDept)
-    : tasks;
+  const filteredTasks = filterDept ? tasks.filter((t) => t.department?.id === filterDept) : tasks;
+  const unscheduledCount = filteredTasks.filter((t) => !t.scheduledStart || !t.scheduledEnd).length;
 
-  const unscheduledCount = filteredTasks.filter(
-    (t) => !t.scheduledStart || !t.scheduledEnd
-  ).length;
+  function getScheduledTasks(startDate: Date, endDate: Date): Task[] {
+    return filteredTasks.filter((t) => {
+      if (!t.scheduledStart || !t.scheduledEnd) return false;
+      return new Date(t.scheduledStart) < endDate && new Date(t.scheduledEnd) > startDate;
+    });
+  }
 
-  const weekTasks = filteredTasks.filter((t) => {
-    if (!t.scheduledStart || !t.scheduledEnd) return false;
-    const start = new Date(t.scheduledStart);
-    const end = new Date(t.scheduledEnd);
-    return start < weekEnd && end > weekStart;
-  });
-
-  function getTasksForDay(dayIndex: number): Task[] {
-    const dayDate = weekDates[dayIndex];
-    return weekTasks.filter((t) => {
+  function getTasksForDay(date: Date): Task[] {
+    return getScheduledTasks(date, date).filter((t) => {
       const start = new Date(t.scheduledStart!);
-      return (
-        start.getDay() === dayDate.getDay() &&
-        start.toDateString() === dayDate.toDateString()
-      );
+      return start.toDateString() === date.toDateString();
     });
   }
 
@@ -271,168 +250,99 @@ export default function CalendarPage() {
     const end = new Date(task.scheduledEnd!);
     const startHour = start.getHours() + start.getMinutes() / 60;
     const endHour = end.getHours() + end.getMinutes() / 60;
-    const top = ((startHour - 6) / 16) * 100;
-    const height = ((endHour - startHour) / 16) * 100;
-    return { top: `${top}%`, height: `${Math.max(height, 3)}%` };
+    const top = ((startHour - opStart) / totalHours) * 100;
+    const height = ((endHour - startHour) / totalHours) * 100;
+    return { top: `${top}%`, height: `${Math.max(height, 2)}%` };
   }
 
   function getCurrentTimePosition(): number | null {
     const hour = currentTime.getHours() + currentTime.getMinutes() / 60;
-    if (hour < 6 || hour > 22) return null;
-    return ((hour - 6) / 16) * 100;
+    if (hour < opStart || hour > opEnd) return null;
+    return ((hour - opStart) / totalHours) * 100;
   }
 
-  const today = new Date();
-  const todayStr = today.toDateString();
+  function getStaffForDay(date: Date) {
+    const dow = date.getDay();
+    const dayTasks = getTasksForDay(date);
+
+    return staffData.map((staff) => {
+      const schedule = staff.schedules.find((s) => s.dayOfWeek === dow);
+      const isAvailable = schedule?.isAvailable ?? false;
+      const assignments = dayTasks.filter((t) =>
+        t.assignments.some((a) => a.membership.user.name === staff.name)
+      );
+      return {
+        ...staff,
+        isAvailable,
+        availableHours: isAvailable ? `${schedule!.startTime}–${schedule!.endTime}` : null,
+        assignedTasks: assignments.map((t) => t.title),
+      };
+    });
+  }
+
   const timePosition = getCurrentTimePosition();
 
   if (loading) return <p>Loading...</p>;
 
-  return (
-    <div className="max-w-6xl">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Calendar</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={showCoverage ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowCoverage(!showCoverage)}
-          >
-            {showCoverage ? "Coverage" : "Tasks only"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={prevWeek}>
-            ← Prev
-          </Button>
-          <Button variant="outline" size="sm" onClick={goToday}>
-            Today
-          </Button>
-          <Button variant="outline" size="sm" onClick={nextWeek}>
-            Next →
-          </Button>
-        </div>
-      </div>
+  // ===== DAY VIEW =====
+  if (viewMode === "day") {
+    const dayTasks = getTasksForDay(selectedDate);
+    const overlapMap = calculateOverlapColumns(dayTasks);
+    const isToday = selectedDate.toDateString() === todayStr;
+    const dayStaff = getStaffForDay(selectedDate);
+    const dow = selectedDate.getDay();
 
-      {/* Week range and filters */}
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {formatDate(weekDates[0])} — {formatDate(weekDates[6])}
-        </p>
-        <div className="flex items-center gap-3">
-          {unscheduledCount > 0 && (
-            <span className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
-              {unscheduledCount} unscheduled task
-              {unscheduledCount > 1 ? "s" : ""} not shown
-            </span>
-          )}
-          <select
-            className="rounded-md border px-3 py-1.5 text-sm bg-background"
-            value={filterDept}
-            onChange={(e) => setFilterDept(e.target.value)}
-          >
-            <option value="">All departments</option>
-            {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>
-                {dept.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
-          {error}
-        </div>
-      )}
-
-      {/* Calendar grid */}
-      <div className="rounded-lg border overflow-hidden">
-        {/* Day headers */}
-        <div className="grid grid-cols-8 border-b bg-muted/30">
-          <div className="p-2 text-xs text-muted-foreground border-r" />
-          {weekDates.map((date, i) => (
-            <div
-              key={i}
-              className={`p-2 text-center text-sm border-r last:border-r-0 ${
-                date.toDateString() === todayStr
-                  ? "bg-blue-50 dark:bg-blue-950 font-semibold text-blue-700 dark:text-blue-300"
-                  : ""
-              }`}
-            >
-              <div>{DAYS[date.getDay()]}</div>
-              <div className="text-xs text-muted-foreground">
-                {date.getDate()}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Time grid */}
-        <div className="grid grid-cols-8" style={{ minHeight: "640px" }}>
-          {/* Hour labels */}
-          <div className="border-r">
-            {HOURS.map((hour) => (
-              <div
-                key={hour}
-                className="border-b text-xs text-muted-foreground px-2 flex items-start pt-1"
-                style={{ height: `${100 / 16}%` }}
-              >
-                {hour === 0
-                  ? "12 AM"
-                  : hour < 12
-                  ? `${hour} AM`
-                  : hour === 12
-                  ? "12 PM"
-                  : `${hour - 12} PM`}
-              </div>
-            ))}
+    return (
+      <div className="max-w-6xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => setViewMode("week")}>
+              ← Week
+            </Button>
+            <h2 className="text-2xl font-bold">{formatFullDate(selectedDate)}</h2>
           </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={prevDay}>← Prev</Button>
+            <Button variant="outline" size="sm" onClick={() => { setSelectedDate(new Date()); }}>Today</Button>
+            <Button variant="outline" size="sm" onClick={nextDay}>Next →</Button>
+          </div>
+        </div>
 
-          {/* Day columns */}
-          {weekDates.map((date, dayIndex) => {
-            const dayTasks = getTasksForDay(dayIndex);
-            const overlapMap = calculateOverlapColumns(dayTasks);
-            const isToday = date.toDateString() === todayStr;
-            const dayOfWeek = date.getDay();
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>
+        )}
 
-            return (
-              <div
-                key={dayIndex}
-                className={`border-r last:border-r-0 relative ${
-                  isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""
-                }`}
-              >
-                {/* Hour cells with heatmap */}
+        <div className="flex gap-0">
+          {/* Day grid */}
+          <div className="flex-1 rounded-lg border border-r-0 rounded-r-none overflow-hidden">
+            <div className="grid" style={{ gridTemplateColumns: "50px 1fr", minHeight: `${totalHours * 48}px` }}>
+              {/* Hour labels */}
+              <div className="border-r">
+                {HOURS.map((hour) => (
+                  <div key={hour} className="border-b text-xs text-muted-foreground px-2 flex items-start pt-1" style={{ height: `${100 / totalHours}%` }}>
+                    {formatHourLabel(hour)}
+                  </div>
+                ))}
+              </div>
+
+              {/* Day column */}
+              <div className={`relative ${isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""}`}>
                 {HOURS.map((hour) => {
-                  const count = getCoverageCount(dayOfWeek, hour);
+                  const count = getCoverageCount(dow, hour);
                   return (
-                    <div
-                      key={hour}
-                      className="border-b relative"
-                      style={{
-                        height: `${100 / 16}%`,
-                        backgroundColor:
-                          showCoverage && coverage.length > 0
-                            ? getCoverageTint(count, isDark)
-                            : undefined,
-                      }}
-                    >
-                      {/* Coverage count in bottom-right corner */}
+                    <div key={hour} className="border-b relative" style={{
+                      height: `${100 / totalHours}%`,
+                      backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
+                    }}>
                       {showCoverage && coverage.length > 0 && (
-                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">
-                          {count}
-                        </span>
+                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">{count}</span>
                       )}
                     </div>
                   );
                 })}
 
-                {/* Current time indicator */}
                 {isToday && timePosition !== null && (
-                  <div
-                    className="absolute left-0 right-0 z-20 pointer-events-none"
-                    style={{ top: `${timePosition}%` }}
-                  >
+                  <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${timePosition}%` }}>
                     <div className="flex items-center">
                       <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1" />
                       <div className="flex-1 border-t-2 border-red-500" />
@@ -440,57 +350,188 @@ export default function CalendarPage() {
                   </div>
                 )}
 
-                {/* Task blocks */}
                 {dayTasks.map((task) => {
                   const pos = getTaskPosition(task);
                   const color = task.department?.color || "#94A3B8";
-                  const overlap = overlapMap.get(task.id) || {
-                    column: 0,
-                    totalColumns: 1,
-                  };
+                  const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
                   const widthPercent = 100 / overlap.totalColumns;
                   const leftPercent = overlap.column * widthPercent;
-                  const isUnderstaffed =
-                    task.assignments.length < task.requiredHeadcount;
+                  const isUnderstaffed = task.assignments.length < task.requiredHeadcount;
 
                   return (
-                    <div
-                      key={task.id}
-                      className="absolute rounded px-1 py-0.5 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
+                    <div key={task.id} className="absolute rounded px-2 py-1 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
                       style={{
-                        top: pos.top,
-                        height: pos.height,
-                        left: `calc(${leftPercent}% + 2px)`,
-                        width: `calc(${widthPercent}% - 4px)`,
-                        backgroundColor: `${color}20`,
-                        borderLeft: `3px solid ${color}`,
-                        ...(isUnderstaffed
-                          ? {
-                              outline: "1.5px dashed #F59E0B",
-                              outlineOffset: "-1px",
-                            }
-                          : {}),
+                        top: pos.top, height: pos.height,
+                        left: `calc(${leftPercent}% + 4px)`, width: `calc(${widthPercent}% - 8px)`,
+                        backgroundColor: `${color}20`, borderLeft: `3px solid ${color}`,
+                        ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
                       }}
-                      onClick={() =>
-                        setSelectedTask(
-                          selectedTask?.id === task.id ? null : task
-                        )
-                      }
+                      onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
                     >
-                      <div
-                        className="font-medium truncate"
-                        style={{ color }}
-                      >
-                        {task.title}
+                      <div className="font-medium truncate" style={{ color }}>{task.title}</div>
+                      <div className="text-muted-foreground mt-0.5" style={{ fontSize: "10px" }}>
+                        {new Date(task.scheduledStart!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} — {new Date(task.scheduledEnd!).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </div>
+                      <div className="text-muted-foreground" style={{ fontSize: "10px" }}>
+                        {task.assignments.map((a) => a.membership.user.name || "Unnamed").join(", ") || "No staff"} ({task.assignments.length}/{task.requiredHeadcount})
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Staff panel */}
+          <div className="w-52 border rounded-r-lg rounded-l-none p-3 bg-card space-y-2 overflow-y-auto" style={{ maxHeight: `${totalHours * 48 + 2}px` }}>
+            <p className="text-sm font-medium">Staff — {DAYS[dow]}</p>
+
+            {dayStaff.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4">No staff data</p>
+            ) : (
+              dayStaff.map((staff) => (
+                <div key={staff.membershipId} className={`rounded-md p-2 text-xs ${staff.isAvailable ? "bg-green-50 dark:bg-green-950" : "bg-muted/50"}`}>
+                  <p className="font-medium text-foreground">{staff.name}</p>
+                  {staff.isAvailable ? (
+                    <p className="text-green-700 dark:text-green-300">{staff.availableHours}</p>
+                  ) : (
+                    <p className="text-muted-foreground">Off today</p>
+                  )}
+                  {staff.assignedTasks.length > 0 && (
+                    <p className="text-muted-foreground mt-0.5">
+                      Assigned: {staff.assignedTasks.join(", ")}
+                    </p>
+                  )}
+                </div>
+              ))
+            )}
+
+            {dayTasks.some((t) => t.assignments.length < t.requiredHeadcount) && (
+              <div className="border-t pt-2 mt-2">
+                {dayTasks.filter((t) => t.assignments.length < t.requiredHeadcount).map((t) => (
+                  <p key={t.id} className="text-xs text-amber-600 dark:text-amber-400">
+                    {t.title} needs {t.requiredHeadcount - t.assignments.length} more
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Task detail panel */}
+        {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}
+      </div>
+    );
+  }
+
+  // ===== WEEK VIEW =====
+  const weekTasks = getScheduledTasks(weekStart, weekEnd);
+
+  return (
+    <div className="max-w-6xl">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-2xl font-bold">Calendar</h2>
+        <div className="flex items-center gap-2">
+          <Button variant={showCoverage ? "default" : "outline"} size="sm" onClick={() => setShowCoverage(!showCoverage)}>
+            {showCoverage ? "Coverage" : "Tasks only"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={prevWeek}>← Prev</Button>
+          <Button variant="outline" size="sm" onClick={goToday}>Today</Button>
+          <Button variant="outline" size="sm" onClick={nextWeek}>Next →</Button>
+        </div>
+      </div>
+
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{formatDate(weekDates[0])} — {formatDate(weekDates[6])}</p>
+        <div className="flex items-center gap-3">
+          {unscheduledCount > 0 && (
+            <span className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
+              {unscheduledCount} unscheduled
+            </span>
+          )}
+          <select className="rounded-md border px-3 py-1.5 text-sm bg-background" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
+            <option value="">All departments</option>
+            {departments.map((dept) => (<option key={dept.id} value={dept.id}>{dept.name}</option>))}
+          </select>
+        </div>
+      </div>
+
+      {error && <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>}
+
+      <div className="rounded-lg border overflow-hidden">
+        {/* Day headers — clickable for day view */}
+        <div className="grid border-b bg-muted/30" style={{ gridTemplateColumns: `50px repeat(7, 1fr)` }}>
+          <div className="p-2 text-xs text-muted-foreground border-r" />
+          {weekDates.map((date, i) => (
+            <div key={i} className={`p-2 text-center text-sm border-r last:border-r-0 cursor-pointer hover:bg-accent/50 transition-colors ${date.toDateString() === todayStr ? "bg-blue-50 dark:bg-blue-950 font-semibold text-blue-700 dark:text-blue-300" : ""}`}
+              onClick={() => openDayView(date)}>
+              <div>{DAYS[date.getDay()]}</div>
+              <div className="text-xs text-muted-foreground">{date.getDate()}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid" style={{ gridTemplateColumns: `50px repeat(7, 1fr)`, minHeight: `${totalHours * 40}px` }}>
+          <div className="border-r">
+            {HOURS.map((hour) => (
+              <div key={hour} className="border-b text-xs text-muted-foreground px-2 flex items-start pt-1" style={{ height: `${100 / totalHours}%` }}>
+                {formatHourLabel(hour)}
+              </div>
+            ))}
+          </div>
+
+          {weekDates.map((date, dayIndex) => {
+            const dayTasks = getTasksForDay(date);
+            const overlapMap = calculateOverlapColumns(dayTasks);
+            const isToday = date.toDateString() === todayStr;
+            const dow = date.getDay();
+
+            return (
+              <div key={dayIndex} className={`border-r last:border-r-0 relative ${isToday ? "bg-blue-50/30 dark:bg-blue-950/20" : ""}`}>
+                {HOURS.map((hour) => {
+                  const count = getCoverageCount(dow, hour);
+                  return (
+                    <div key={hour} className="border-b relative" style={{
+                      height: `${100 / totalHours}%`,
+                      backgroundColor: showCoverage && coverage.length > 0 ? getCoverageTint(count, isDark) : undefined,
+                    }}>
+                      {showCoverage && coverage.length > 0 && (
+                        <span className="absolute bottom-0.5 right-1 text-[9px] text-muted-foreground/50 select-none">{count}</span>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {isToday && timePosition !== null && (
+                  <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ top: `${timePosition}%` }}>
+                    <div className="flex items-center">
+                      <div className="h-2.5 w-2.5 rounded-full bg-red-500 -ml-1" />
+                      <div className="flex-1 border-t-2 border-red-500" />
+                    </div>
+                  </div>
+                )}
+
+                {dayTasks.map((task) => {
+                  const pos = getTaskPosition(task);
+                  const color = task.department?.color || "#94A3B8";
+                  const overlap = overlapMap.get(task.id) || { column: 0, totalColumns: 1 };
+                  const widthPercent = 100 / overlap.totalColumns;
+                  const leftPercent = overlap.column * widthPercent;
+                  const isUnderstaffed = task.assignments.length < task.requiredHeadcount;
+
+                  return (
+                    <div key={task.id} className="absolute rounded px-1 py-0.5 text-xs cursor-pointer overflow-hidden hover:opacity-90 transition-opacity z-10"
+                      style={{
+                        top: pos.top, height: pos.height,
+                        left: `calc(${leftPercent}% + 2px)`, width: `calc(${widthPercent}% - 4px)`,
+                        backgroundColor: `${color}20`, borderLeft: `3px solid ${color}`,
+                        ...(isUnderstaffed ? { outline: "1.5px dashed #F59E0B", outlineOffset: "-1px" } : {}),
+                      }}
+                      onClick={() => setSelectedTask(selectedTask?.id === task.id ? null : task)}
+                    >
+                      <div className="font-medium truncate" style={{ color }}>{task.title}</div>
                       {parseFloat(pos.height) > 8 && (
-                        <div
-                          className="truncate text-muted-foreground"
-                          style={{ fontSize: "10px" }}
-                        >
-                          {task.assignments.length}/{task.requiredHeadcount}{" "}
-                          staff
-                        </div>
+                        <div className="truncate text-muted-foreground" style={{ fontSize: "10px" }}>{task.assignments.length}/{task.requiredHeadcount} staff</div>
                       )}
                     </div>
                   );
@@ -505,10 +546,7 @@ export default function CalendarPage() {
       <div className="mt-4 flex flex-wrap items-center gap-4">
         {departments.map((dept) => (
           <div key={dept.id} className="flex items-center gap-2 text-sm">
-            <div
-              className="h-3 w-3 rounded-full"
-              style={{ backgroundColor: dept.color || "#94A3B8" }}
-            />
+            <div className="h-3 w-3 rounded-full" style={{ backgroundColor: dept.color || "#94A3B8" }} />
             <span className="text-muted-foreground">{dept.name}</span>
           </div>
         ))}
@@ -516,95 +554,52 @@ export default function CalendarPage() {
           <>
             <div className="h-4 border-l mx-1" />
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className="inline-block h-3 w-3 rounded"
-                style={{ backgroundColor: getCoverageTint(4, isDark) }}
-              />
-              4+
+              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(4, isDark) }} /> 4+
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className="inline-block h-3 w-3 rounded"
-                style={{ backgroundColor: getCoverageTint(2, isDark) }}
-              />
-              1-3
+              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(2, isDark) }} /> 1-3
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className="inline-block h-3 w-3 rounded"
-                style={{ backgroundColor: getCoverageTint(0, isDark) }}
-              />
-              None
+              <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: getCoverageTint(0, isDark) }} /> None
             </div>
           </>
         )}
       </div>
 
-      {/* Task detail panel */}
-      {selectedTask && (
-        <Card className="mt-4">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                {selectedTask.department && (
-                  <div
-                    className="h-3 w-3 rounded-full"
-                    style={{
-                      backgroundColor:
-                        selectedTask.department.color || "#94A3B8",
-                    }}
-                  />
-                )}
-                {selectedTask.title}
-              </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedTask(null)}
-              >
-                Close
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Department: </span>
-              {selectedTask.department?.name || "None"}
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Status: </span>
-              {selectedTask.status}
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Priority: </span>
-              {selectedTask.priority}
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Schedule: </span>
-              {selectedTask.scheduledStart &&
-                new Date(selectedTask.scheduledStart).toLocaleString()}
-              {selectedTask.scheduledEnd &&
-                ` — ${new Date(selectedTask.scheduledEnd).toLocaleString()}`}
-            </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Staff: </span>
-              {selectedTask.assignments.length}/
-              {selectedTask.requiredHeadcount}
-              {selectedTask.assignments.length > 0 && (
-                <span>
-                  {" — "}
-                  {selectedTask.assignments
-                    .map(
-                      (a) =>
-                        `${a.membership.user.name || "Unnamed"} (${a.status})`
-                    )
-                    .join(", ")}
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}
     </div>
+  );
+}
+
+function TaskDetailPanel({ task, onClose }: { task: Task; onClose: () => void }) {
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            {task.department && <div className="h-3 w-3 rounded-full" style={{ backgroundColor: task.department.color || "#94A3B8" }} />}
+            {task.title}
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="text-sm"><span className="text-muted-foreground">Department: </span>{task.department?.name || "None"}</div>
+        <div className="text-sm"><span className="text-muted-foreground">Status: </span>{task.status}</div>
+        <div className="text-sm"><span className="text-muted-foreground">Priority: </span>{task.priority}</div>
+        <div className="text-sm">
+          <span className="text-muted-foreground">Schedule: </span>
+          {task.scheduledStart && new Date(task.scheduledStart).toLocaleString()}
+          {task.scheduledEnd && ` — ${new Date(task.scheduledEnd).toLocaleString()}`}
+        </div>
+        <div className="text-sm">
+          <span className="text-muted-foreground">Staff: </span>
+          {task.assignments.length}/{task.requiredHeadcount}
+          {task.assignments.length > 0 && (
+            <span>{" — "}{task.assignments.map((a) => `${a.membership.user.name || "Unnamed"} (${a.status})`).join(", ")}</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

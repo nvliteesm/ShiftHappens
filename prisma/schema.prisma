@@ -213,6 +213,8 @@ model CompanySettings {
   taskAcceptanceMode      String   @default("auto_accept")
   breakRuleHoursWorked    Int      @default(8)
   breakRuleBreakHours     Int      @default(1)
+  operatingHoursStart     Int      @default(6)
+  operatingHoursEnd       Int      @default(22)
   smartAllocationWeights  String?
   notificationPreferences String?
   createdAt               DateTime @default(now())

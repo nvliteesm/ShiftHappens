@@ -187,6 +187,8 @@ export const updateCompanySettingsSchema = z.object({
   taskAcceptanceMode: z.enum(["auto_accept", "require_acceptance"]).optional(),
   breakRuleHoursWorked: z.number().int().min(1).max(24).optional(),
   breakRuleBreakHours: z.number().int().min(1).max(24).optional(),
+  operatingHoursStart: z.number().int().min(0).max(23).optional(),
+  operatingHoursEnd: z.number().int().min(1).max(24).optional(),
   notificationPreferences: z.object({
     emailNotifications: z.boolean().optional(),
     taskAssignment: z.boolean().optional(),

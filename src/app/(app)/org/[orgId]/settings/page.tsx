@@ -1,10 +1,11 @@
 /**
  * Company Settings Page (Boundary Layer)
- * 
+ *
  * Company Admin can configure organization-wide settings:
  * - Task allocation mode (manual, suggested, auto)
  * - Task acceptance mode (auto-accept or require confirmation)
  * - Break rules (hours worked before break, break duration)
+ * - Operating hours (calendar display range)
  * - Notification preferences
  */
 "use client";
@@ -29,6 +30,8 @@ interface Settings {
   taskAcceptanceMode: string;
   breakRuleHoursWorked: number;
   breakRuleBreakHours: number;
+  operatingHoursStart: number;
+  operatingHoursEnd: number;
   notificationPreferences: string | null;
 }
 
@@ -40,6 +43,8 @@ export default function SettingsPage() {
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
   const [breakHoursWorked, setBreakHoursWorked] = useState(6);
   const [breakHours, setBreakHours] = useState(1);
+  const [opStart, setOpStart] = useState(6);
+  const [opEnd, setOpEnd] = useState(22);
   const [notifPrefs, setNotifPrefs] = useState({
     emailNotifications: true,
     taskAssignment: true,
@@ -66,6 +71,8 @@ export default function SettingsPage() {
       setTaskAcceptanceMode(data.taskAcceptanceMode);
       setBreakHoursWorked(data.breakRuleHoursWorked);
       setBreakHours(data.breakRuleBreakHours);
+      setOpStart(data.operatingHoursStart ?? 6);
+      setOpEnd(data.operatingHoursEnd ?? 22);
       if (data.notificationPreferences) {
         setNotifPrefs({
           ...notifPrefs,
@@ -80,6 +87,12 @@ export default function SettingsPage() {
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
+
+    if (opEnd <= opStart) {
+      setMessage({ type: "error", text: "Operating end hour must be after start hour" });
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -91,6 +104,8 @@ export default function SettingsPage() {
           taskAcceptanceMode,
           breakRuleHoursWorked: breakHoursWorked,
           breakRuleBreakHours: breakHours,
+          operatingHoursStart: opStart,
+          operatingHoursEnd: opEnd,
           notificationPreferences: notifPrefs,
         }),
       });
@@ -114,6 +129,14 @@ export default function SettingsPage() {
     }
   }
 
+  /** Formats hour number to display string */
+  function formatHour(h: number): string {
+    if (h === 0 || h === 24) return "12 AM (midnight)";
+    if (h === 12) return "12 PM (noon)";
+    if (h < 12) return `${h} AM`;
+    return `${h - 12} PM`;
+  }
+
   if (!settings) return <p>Loading...</p>;
 
   return (
@@ -133,8 +156,8 @@ export default function SettingsPage() {
               <div
                 className={`rounded-md p-3 text-sm ${
                   message.type === "success"
-                    ? "bg-green-50 text-green-600"
-                    : "bg-red-50 text-red-600"
+                    ? "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-300"
+                    : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
                 }`}
               >
                 {message.text}
@@ -145,7 +168,7 @@ export default function SettingsPage() {
               <Label htmlFor="allocationMode">Allocation Mode</Label>
               <select
                 id="allocationMode"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border px-3 py-2 text-sm bg-background"
                 value={allocationMode}
                 onChange={(e) => setAllocationMode(e.target.value)}
               >
@@ -165,7 +188,7 @@ export default function SettingsPage() {
               <Label htmlFor="taskAcceptanceMode">Task Acceptance</Label>
               <select
                 id="taskAcceptanceMode"
-                className="w-full rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border px-3 py-2 text-sm bg-background"
                 value={taskAcceptanceMode}
                 onChange={(e) => setTaskAcceptanceMode(e.target.value)}
               >
@@ -216,6 +239,50 @@ export default function SettingsPage() {
 
             <Separator />
 
+            <p className="text-base font-medium">Operating Hours</p>
+            <p className="text-sm text-muted-foreground">
+              The daily operating window shown on the calendar. Tasks outside
+              these hours won't appear in the calendar grid.
+            </p>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="opStart">Opens at</Label>
+                <select
+                  id="opStart"
+                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                  value={opStart}
+                  onChange={(e) => setOpStart(Number(e.target.value))}
+                >
+                  {Array.from({ length: 24 }, (_, i) => (
+                    <option key={i} value={i}>
+                      {formatHour(i)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="opEnd">Closes at</Label>
+                <select
+                  id="opEnd"
+                  className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+                  value={opEnd}
+                  onChange={(e) => setOpEnd(Number(e.target.value))}
+                >
+                  {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => (
+                    <option key={h} value={h}>
+                      {formatHour(h)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Currently set to {formatHour(opStart)} — {formatHour(opEnd)} ({opEnd - opStart} hours)
+            </p>
+
+            <Separator />
+
             <p className="text-base font-medium">Notifications</p>
             <p className="text-sm text-muted-foreground">
               Configure which notifications are enabled
@@ -227,7 +294,10 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={notifPrefs.emailNotifications}
                   onChange={(e) =>
-                    setNotifPrefs({ ...notifPrefs, emailNotifications: e.target.checked })
+                    setNotifPrefs({
+                      ...notifPrefs,
+                      emailNotifications: e.target.checked,
+                    })
                   }
                 />
                 Email notifications
@@ -237,7 +307,10 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={notifPrefs.taskAssignment}
                   onChange={(e) =>
-                    setNotifPrefs({ ...notifPrefs, taskAssignment: e.target.checked })
+                    setNotifPrefs({
+                      ...notifPrefs,
+                      taskAssignment: e.target.checked,
+                    })
                   }
                 />
                 Task assignment notifications
@@ -247,7 +320,10 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={notifPrefs.taskRejection}
                   onChange={(e) =>
-                    setNotifPrefs({ ...notifPrefs, taskRejection: e.target.checked })
+                    setNotifPrefs({
+                      ...notifPrefs,
+                      taskRejection: e.target.checked,
+                    })
                   }
                 />
                 Task rejection notifications
@@ -257,7 +333,10 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={notifPrefs.hourLimitWarning}
                   onChange={(e) =>
-                    setNotifPrefs({ ...notifPrefs, hourLimitWarning: e.target.checked })
+                    setNotifPrefs({
+                      ...notifPrefs,
+                      hourLimitWarning: e.target.checked,
+                    })
                   }
                 />
                 Hour limit warning notifications
@@ -267,7 +346,10 @@ export default function SettingsPage() {
                   type="checkbox"
                   checked={notifPrefs.certificationExpiry}
                   onChange={(e) =>
-                    setNotifPrefs({ ...notifPrefs, certificationExpiry: e.target.checked })
+                    setNotifPrefs({
+                      ...notifPrefs,
+                      certificationExpiry: e.target.checked,
+                    })
                   }
                 />
                 Certification expiry notifications

@@ -828,8 +828,9 @@ export class ReportingService {
 
   /**
    * Computes staff availability coverage for each hour of each day.
-   * Returns a 7x16 matrix (7 days x 16 hours, 6am-10pm) with coverage counts.
+   * Returns a matrix with coverage counts per hour slot.
    * Used for calendar heatmap background tints.
+   * Respects operating hours from settings.
    */
   async getCalendarCoverage(
     organizationId: string,
@@ -841,7 +842,7 @@ export class ReportingService {
     const coverage: { dayOfWeek: number; hour: number; count: number }[] = [];
 
     for (let day = 0; day < 7; day++) {
-      for (let hour = 6; hour < 22; hour++) {
+      for (let hour = 0; hour < 24; hour++) {
         const hourStr = `${String(hour).padStart(2, "0")}:00`;
         const nextHourStr = `${String(hour + 1).padStart(2, "0")}:00`;
 
@@ -852,7 +853,6 @@ export class ReportingService {
           if (s.dayOfWeek !== day || !s.isAvailable) continue;
           if (seen.has(s.membershipId)) continue;
 
-          // Check if this hour falls within the staff's availability window
           if (s.startTime <= hourStr && s.endTime >= nextHourStr) {
             count++;
             seen.add(s.membershipId);
@@ -864,6 +864,50 @@ export class ReportingService {
     }
 
     return coverage;
+  }
+
+  /**
+   * Gets all active staff members with their weekly availability schedules.
+   * Used for the calendar day-view staff panel.
+   * Groups flat availability records by staff member.
+   */
+  async getAllStaffSchedules(
+    organizationId: string
+  ): Promise<
+    {
+      membershipId: string;
+      name: string;
+      schedules: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[];
+    }[]
+  > {
+    const data = await this.reportingRepo.getAllStaffAvailability(organizationId);
+
+    const staffMap = new Map<
+      string,
+      {
+        membershipId: string;
+        name: string;
+        schedules: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[];
+      }
+    >();
+
+    for (const s of data) {
+      if (!staffMap.has(s.membershipId)) {
+        staffMap.set(s.membershipId, {
+          membershipId: s.membershipId,
+          name: s.membership.user.name || s.membership.user.email,
+          schedules: [],
+        });
+      }
+      staffMap.get(s.membershipId)!.schedules.push({
+        dayOfWeek: s.dayOfWeek,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        isAvailable: s.isAvailable,
+      });
+    }
+
+    return Array.from(staffMap.values());
   }
 
   // ===== Private Helpers =====

@@ -5,6 +5,7 @@
  * Week view: overview with heatmap tints and coverage counts.
  * Day view: full-width single day with staff availability panel.
  * Operating hours are configurable via company settings.
+ * Inline assign modal for understaffed tasks in day view.
  *
  * Click a day header to drill into day view.
  * "Back to week" returns to the weekly overview.
@@ -14,6 +15,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { CalendarAssignModal } from "@/components/calendar/calendar-assign-modal";
 import {
   Card,
   CardContent,
@@ -143,6 +145,10 @@ export default function CalendarPage() {
   const [opStart, setOpStart] = useState(6);
   const [opEnd, setOpEnd] = useState(22);
 
+  const [assignTask, setAssignTask] = useState<{
+    id: string; title: string; requiredHeadcount: number; currentCount: number;
+  } | null>(null);
+
   const [isDark, setIsDark] = useState(false);
   useEffect(() => {
     const check = () => setIsDark(document.documentElement.classList.contains("dark"));
@@ -239,9 +245,9 @@ export default function CalendarPage() {
   }
 
   function getTasksForDay(date: Date): Task[] {
-    return getScheduledTasks(date, date).filter((t) => {
-      const start = new Date(t.scheduledStart!);
-      return start.toDateString() === date.toDateString();
+    return filteredTasks.filter((t) => {
+      if (!t.scheduledStart) return false;
+      return new Date(t.scheduledStart).toDateString() === date.toDateString();
     });
   }
 
@@ -407,16 +413,42 @@ export default function CalendarPage() {
             )}
 
             {dayTasks.some((t) => t.assignments.length < t.requiredHeadcount) && (
-              <div className="border-t pt-2 mt-2">
+              <div className="border-t pt-2 mt-2 space-y-1.5">
                 {dayTasks.filter((t) => t.assignments.length < t.requiredHeadcount).map((t) => (
-                  <p key={t.id} className="text-xs text-amber-600 dark:text-amber-400">
-                    {t.title} needs {t.requiredHeadcount - t.assignments.length} more
-                  </p>
+                  <div key={t.id} className="flex items-start justify-between gap-1">
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      {t.title} needs {t.requiredHeadcount - t.assignments.length} more
+                    </p>
+                    <button
+                      onClick={() => setAssignTask({
+                        id: t.id,
+                        title: t.title,
+                        requiredHeadcount: t.requiredHeadcount,
+                        currentCount: t.assignments.length,
+                      })}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+                    >
+                      Assign
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+
+        {/* Assign modal */}
+        {assignTask && (
+          <CalendarAssignModal
+            taskId={assignTask.id}
+            taskTitle={assignTask.title}
+            requiredHeadcount={assignTask.requiredHeadcount}
+            currentCount={assignTask.currentCount}
+            orgId={orgId}
+            onClose={() => setAssignTask(null)}
+            onAssigned={() => { fetchTasks(); fetchCoverage(); }}
+          />
+        )}
 
         {/* Task detail panel */}
         {selectedTask && <TaskDetailPanel task={selectedTask} onClose={() => setSelectedTask(null)} />}

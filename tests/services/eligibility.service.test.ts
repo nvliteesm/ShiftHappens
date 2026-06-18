@@ -1,7 +1,13 @@
 /**
  * Tests for Eligibility Service (Control Layer)
- * Verifies the three-dimensional eligibility engine:
- * hours limit, availability, and scheduling conflicts.
+ *
+ * Verifies the four-dimensional eligibility engine:
+ * 1. Hours limit (24h rolling window)
+ * 2. Availability (weekly schedule + overrides)
+ * 3. Scheduling conflicts (overlapping assignments)
+ * 4. Work rules (break_interval, max_hours_daily, max_hours_weekly)
+ *
+ * Also covers eligibility overrides that bypass specific rules.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { EligibilityService } from "@/services/eligibility.service";
@@ -21,7 +27,6 @@ const availRepo = new AvailabilityRepository();
 let orgId: string;
 let adminUserId: string;
 let staffMembershipId: string;
-let taskId: string;
 
 beforeEach(async () => {
   await cleanDatabase();
@@ -55,7 +60,6 @@ beforeEach(async () => {
   });
   staffMembershipId = staffMembership.id;
 
-  // Create company settings
   await prisma.companySettings.create({
     data: {
       organizationId: org.id,
@@ -78,14 +82,12 @@ describe("EligibilityService", () => {
         orgId
       );
 
-      // Should include staff but not admin
       const staffResult = results.find(
         (r) => r.membershipId === staffMembershipId
       );
       expect(staffResult).toBeDefined();
       expect(staffResult!.eligible).toBe(true);
 
-      // Admin should not be in results
       const adminResult = results.find(
         (r) => r.memberName === "Admin User"
       );
@@ -97,11 +99,9 @@ describe("EligibilityService", () => {
         title: "Scheduled task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T09:00:00.000Z"), // Monday
+        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
         scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
       });
-
-      // No availability set = unavailable
 
       const results = await eligibilityService.checkEligibilityForTask(
         task.id,
@@ -116,7 +116,6 @@ describe("EligibilityService", () => {
     });
 
     it("marks staff eligible when available", async () => {
-      // Set Monday availability
       await availRepo.setDayAvailability({
         membershipId: staffMembershipId,
         dayOfWeek: 1,
@@ -129,7 +128,7 @@ describe("EligibilityService", () => {
         title: "Monday task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T09:00:00.000Z"), // Monday
+        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
         scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
       });
 
@@ -146,7 +145,6 @@ describe("EligibilityService", () => {
     });
 
     it("marks staff ineligible with scheduling conflict", async () => {
-      // Create first task and assign staff
       const task1 = await taskRepo.create({
         title: "Morning shift",
         organizationId: orgId,
@@ -164,7 +162,6 @@ describe("EligibilityService", () => {
         },
       });
 
-      // Create overlapping task
       const task2 = await taskRepo.create({
         title: "Overlapping task",
         organizationId: orgId,
@@ -202,7 +199,6 @@ describe("EligibilityService", () => {
     });
 
     it("returns ineligible when over limit", async () => {
-      // Create a completed task with 9 hours worked
       const task = await taskRepo.create({
         title: "Long shift",
         organizationId: orgId,
@@ -229,6 +225,334 @@ describe("EligibilityService", () => {
       );
       expect(result.eligible).toBe(false);
       expect(result.reason).toContain("limit");
+    });
+  });
+
+  describe("work rules integration", () => {
+    it("staff passes when no work rules exist in org", async () => {
+      const task = await taskRepo.create({
+        title: "No rules task",
+        organizationId: orgId,
+        createdById: adminUserId,
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(true);
+    });
+
+    it("marks staff ineligible when max_hours_daily exceeded", async () => {
+      // Monday availability so staff passes availability check
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 1,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+
+      // Work rule: max 8 hours per day
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Daily limit",
+          type: "max_hours_daily",
+          maxHours: 8,
+          isActive: true,
+        },
+      });
+
+      // Completed assignment on Monday 2026-06-15 with 9 hours clocked
+      const pastTask = await taskRepo.create({
+        title: "Morning shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T17:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: pastTask.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T17:00:00.000Z"),
+        },
+      });
+
+      // New task on the same day (Monday)
+      const newTask = await taskRepo.create({
+        title: "Evening shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T18:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T21:00:00.000Z"),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        newTask.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(false);
+    });
+
+    it("staff passes max_hours_daily when under the limit", async () => {
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 1,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Daily limit",
+          type: "max_hours_daily",
+          maxHours: 10,
+          isActive: true,
+        },
+      });
+
+      // Only 4 hours clocked on Monday
+      const pastTask = await taskRepo.create({
+        title: "Short shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: pastTask.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T12:00:00.000Z"),
+        },
+      });
+
+      const newTask = await taskRepo.create({
+        title: "Afternoon shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T14:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T17:00:00.000Z"),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        newTask.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(true);
+    });
+
+    it("inactive work rules are ignored", async () => {
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 1,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+
+      // Inactive rule with very low limit
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Strict daily limit",
+          type: "max_hours_daily",
+          maxHours: 1,
+          isActive: false,
+        },
+      });
+
+      // 4 hours clocked — would exceed the rule if active
+      const pastTask = await taskRepo.create({
+        title: "Shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: pastTask.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T12:00:00.000Z"),
+        },
+      });
+
+      const newTask = await taskRepo.create({
+        title: "Next shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T14:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T17:00:00.000Z"),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        newTask.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      // Rule is inactive so staff should pass
+      expect(staffResult!.eligible).toBe(true);
+    });
+
+    it("staff with zero hours passes all work rules", async () => {
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 1,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+
+      // Strict rules — but staff has zero hours
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Daily limit",
+          type: "max_hours_daily",
+          maxHours: 4,
+          isActive: true,
+        },
+      });
+
+      const task = await taskRepo.create({
+        title: "First shift ever",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(true);
+    });
+
+    it("marks staff ineligible when max_hours_weekly exceeded", async () => {
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 1,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+
+      // Weekly limit of 20 hours
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Weekly limit",
+          type: "max_hours_weekly",
+          maxHours: 20,
+          isActive: true,
+        },
+      });
+
+      // 22 hours already clocked earlier in the same week (Mon-Fri = same week)
+      // Monday 10h
+      const task1 = await taskRepo.create({
+        title: "Mon shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T08:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T18:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: task1.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date("2026-06-15T08:00:00.000Z"),
+          clockOutTime: new Date("2026-06-15T18:00:00.000Z"),
+        },
+      });
+
+      // Tuesday 12h
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 2,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+      const task2 = await taskRepo.create({
+        title: "Tue shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-16T07:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-16T19:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: task2.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date("2026-06-16T07:00:00.000Z"),
+          clockOutTime: new Date("2026-06-16T19:00:00.000Z"),
+        },
+      });
+
+      // New task on Wednesday in the same week — should be blocked (22h > 20h)
+      await availRepo.setDayAvailability({
+        membershipId: staffMembershipId,
+        dayOfWeek: 3,
+        startTime: "06:00",
+        endTime: "23:00",
+        isAvailable: true,
+      });
+      const newTask = await taskRepo.create({
+        title: "Wed shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-17T09:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-17T17:00:00.000Z"),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        newTask.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(false);
     });
   });
 
@@ -261,7 +585,6 @@ describe("EligibilityService", () => {
         scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
       });
 
-      // Staff has no availability = blocked
       let results = await eligibilityService.checkEligibilityForTask(
         task.id,
         orgId
@@ -271,7 +594,6 @@ describe("EligibilityService", () => {
       );
       expect(staffResult!.checks.availability.eligible).toBe(false);
 
-      // Create override
       await eligibilityService.createOverride(
         task.id,
         staffMembershipId,
@@ -280,7 +602,6 @@ describe("EligibilityService", () => {
         "availability"
       );
 
-      // Check again — availability should now pass
       results = await eligibilityService.checkEligibilityForTask(
         task.id,
         orgId

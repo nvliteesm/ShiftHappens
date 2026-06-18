@@ -13,6 +13,7 @@ export default defineConfig({
     setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     fileParallelism: false,
+    reporters: ['verbose'],
   },
   resolve: {
     alias: {

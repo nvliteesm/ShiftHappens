@@ -1,7 +1,9 @@
 /**
  * Tests for Zod Validation Schemas
+ *
  * Covers all input validation rules for auth, org, department,
- * invitation, and user management endpoints.
+ * invitation, user management, tasks, availability, certifications,
+ * eligibility overrides, and company settings (including operating hours).
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -131,18 +133,14 @@ describe("createOrganizationSchema", () => {
   });
 
   it("rejects empty name", () => {
-    const result = createOrganizationSchema.safeParse({
-      name: "",
-    });
+    const result = createOrganizationSchema.safeParse({ name: "" });
     expect(result.success).toBe(false);
   });
 });
 
 describe("updateProfileSchema", () => {
   it("accepts valid profile update", () => {
-    const result = updateProfileSchema.safeParse({
-      name: "Jane Doe",
-    });
+    const result = updateProfileSchema.safeParse({ name: "Jane Doe" });
     expect(result.success).toBe(true);
   });
 
@@ -176,86 +174,60 @@ describe("createDepartmentSchema", () => {
   });
 
   it("rejects empty name", () => {
-    const result = createDepartmentSchema.safeParse({
-      name: "",
-    });
+    const result = createDepartmentSchema.safeParse({ name: "" });
     expect(result.success).toBe(false);
   });
 });
 
 describe("updateDepartmentSchema", () => {
   it("accepts partial update", () => {
-    const result = updateDepartmentSchema.safeParse({
-      name: "New Name",
-    });
+    const result = updateDepartmentSchema.safeParse({ name: "New Name" });
     expect(result.success).toBe(true);
   });
 });
 
 describe("inviteUserSchema", () => {
   it("accepts valid invitation", () => {
-    const result = inviteUserSchema.safeParse({
-      email: "john@example.com",
-      role: "staff",
-    });
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "staff" });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid role", () => {
-    const result = inviteUserSchema.safeParse({
-      email: "john@example.com",
-      role: "superadmin",
-    });
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "superadmin" });
     expect(result.success).toBe(false);
   });
 
   it("accepts invitation with department", () => {
-    const result = inviteUserSchema.safeParse({
-      email: "john@example.com",
-      role: "manager",
-      departmentId: "dept-123",
-    });
+    const result = inviteUserSchema.safeParse({ email: "john@example.com", role: "manager", departmentId: "dept-123" });
     expect(result.success).toBe(true);
   });
 });
 
 describe("updateUserRoleSchema", () => {
   it("accepts valid role update", () => {
-    const result = updateUserRoleSchema.safeParse({
-      role: "manager",
-      departmentIds: ["dept-1", "dept-2"],
-    });
+    const result = updateUserRoleSchema.safeParse({ role: "manager", departmentIds: ["dept-1", "dept-2"] });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid role", () => {
-    const result = updateUserRoleSchema.safeParse({
-      role: "owner",
-    });
+    const result = updateUserRoleSchema.safeParse({ role: "owner" });
     expect(result.success).toBe(false);
   });
 });
 
 describe("updateOrganizationSchema", () => {
   it("accepts valid org update", () => {
-    const result = updateOrganizationSchema.safeParse({
-      name: "New Corp",
-      industry: "Finance",
-    });
+    const result = updateOrganizationSchema.safeParse({ name: "New Corp", industry: "Finance" });
     expect(result.success).toBe(true);
   });
 
   it("accepts valid logo URL", () => {
-    const result = updateOrganizationSchema.safeParse({
-      logo: "https://example.com/logo.png",
-    });
+    const result = updateOrganizationSchema.safeParse({ logo: "https://example.com/logo.png" });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid logo URL", () => {
-    const result = updateOrganizationSchema.safeParse({
-      logo: "not-a-url",
-    });
+    const result = updateOrganizationSchema.safeParse({ logo: "not-a-url" });
     expect(result.success).toBe(false);
   });
 });
@@ -263,45 +235,30 @@ describe("updateOrganizationSchema", () => {
 describe("createRoleSchema", () => {
   it("accepts valid role data", () => {
     const result = createRoleSchema.safeParse({
-      name: "shift_lead",
-      displayLabel: "Shift Lead",
-      description: "Leads a shift",
-      permissionIds: ["perm-1", "perm-2"],
+      name: "shift_lead", displayLabel: "Shift Lead", description: "Leads a shift", permissionIds: ["perm-1", "perm-2"],
     });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty name", () => {
-    const result = createRoleSchema.safeParse({
-      name: "",
-      displayLabel: "Shift Lead",
-      permissionIds: ["perm-1"],
-    });
+    const result = createRoleSchema.safeParse({ name: "", displayLabel: "Shift Lead", permissionIds: ["perm-1"] });
     expect(result.success).toBe(false);
   });
 
   it("rejects empty permissions", () => {
-    const result = createRoleSchema.safeParse({
-      name: "shift_lead",
-      displayLabel: "Shift Lead",
-      permissionIds: [],
-    });
+    const result = createRoleSchema.safeParse({ name: "shift_lead", displayLabel: "Shift Lead", permissionIds: [] });
     expect(result.success).toBe(false);
   });
 });
 
 describe("updateRoleSchema", () => {
   it("accepts partial update", () => {
-    const result = updateRoleSchema.safeParse({
-      displayLabel: "Senior Shift Lead",
-    });
+    const result = updateRoleSchema.safeParse({ displayLabel: "Senior Shift Lead" });
     expect(result.success).toBe(true);
   });
 
   it("accepts permission update", () => {
-    const result = updateRoleSchema.safeParse({
-      permissionIds: ["perm-1", "perm-2", "perm-3"],
-    });
+    const result = updateRoleSchema.safeParse({ permissionIds: ["perm-1", "perm-2", "perm-3"] });
     expect(result.success).toBe(true);
   });
 });
@@ -309,180 +266,165 @@ describe("updateRoleSchema", () => {
 describe("updateCompanySettingsSchema", () => {
   it("accepts valid settings", () => {
     const result = updateCompanySettingsSchema.safeParse({
-      allocationMode: "suggested",
-      taskAcceptanceMode: "require_acceptance",
-      breakRuleHoursWorked: 6,
-      breakRuleBreakHours: 10,
+      allocationMode: "suggested", taskAcceptanceMode: "require_acceptance",
+      breakRuleHoursWorked: 6, breakRuleBreakHours: 10,
     });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid allocation mode", () => {
-    const result = updateCompanySettingsSchema.safeParse({
-      allocationMode: "invalid_mode",
-    });
+    const result = updateCompanySettingsSchema.safeParse({ allocationMode: "invalid_mode" });
     expect(result.success).toBe(false);
   });
 
   it("accepts notification preferences", () => {
     const result = updateCompanySettingsSchema.safeParse({
-      notificationPreferences: {
-        emailNotifications: true,
-        taskAssignment: true,
-        hourLimitWarning: false,
-      },
+      notificationPreferences: { emailNotifications: true, taskAssignment: true, hourLimitWarning: false },
     });
     expect(result.success).toBe(true);
   });
 
   it("rejects break hours above 24", () => {
-    const result = updateCompanySettingsSchema.safeParse({
-      breakRuleHoursWorked: 25,
-    });
+    const result = updateCompanySettingsSchema.safeParse({ breakRuleHoursWorked: 25 });
     expect(result.success).toBe(false);
+  });
+
+  describe("operating hours validation", () => {
+    it("accepts valid operating hours", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: 8, operatingHoursEnd: 20 });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts start=0 (midnight opening)", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: 0 });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts end=24 (midnight closing)", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursEnd: 24 });
+      expect(result.success).toBe(true);
+    });
+
+    it("accepts boundary values start=23, end=24", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: 23, operatingHoursEnd: 24 });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects operatingHoursStart below 0", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: -1 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects operatingHoursStart above 23", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: 24 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects operatingHoursEnd below 1", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursEnd: 0 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects operatingHoursEnd above 24", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursEnd: 25 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects non-integer operatingHoursStart", () => {
+      const result = updateCompanySettingsSchema.safeParse({ operatingHoursStart: 8.5 });
+      expect(result.success).toBe(false);
+    });
   });
 });
 
 describe("createTaskSchema", () => {
   it("accepts valid task data", () => {
-    const result = createTaskSchema.safeParse({
-      title: "Clean kitchen",
-      description: "Deep clean all surfaces",
-      priority: "high",
-      requiredHeadcount: 2,
-    });
+    const result = createTaskSchema.safeParse({ title: "Clean kitchen", description: "Deep clean", priority: "high", requiredHeadcount: 2 });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty title", () => {
-    const result = createTaskSchema.safeParse({
-      title: "",
-    });
+    const result = createTaskSchema.safeParse({ title: "" });
     expect(result.success).toBe(false);
   });
 
   it("accepts task with scheduling", () => {
-    const result = createTaskSchema.safeParse({
-      title: "Morning prep",
-      scheduledStart: "2026-06-01T08:00:00.000Z",
-      scheduledEnd: "2026-06-01T10:00:00.000Z",
-    });
+    const result = createTaskSchema.safeParse({ title: "Morning prep", scheduledStart: "2026-06-01T08:00:00.000Z", scheduledEnd: "2026-06-01T10:00:00.000Z" });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid priority", () => {
-    const result = createTaskSchema.safeParse({
-      title: "Task",
-      priority: "super_urgent",
-    });
+    const result = createTaskSchema.safeParse({ title: "Task", priority: "super_urgent" });
     expect(result.success).toBe(false);
   });
 
   it("rejects headcount above 50", () => {
-    const result = createTaskSchema.safeParse({
-      title: "Task",
-      requiredHeadcount: 51,
-    });
+    const result = createTaskSchema.safeParse({ title: "Task", requiredHeadcount: 51 });
     expect(result.success).toBe(false);
   });
 });
 
 describe("updateTaskSchema", () => {
   it("accepts partial update", () => {
-    const result = updateTaskSchema.safeParse({
-      title: "Updated title",
-      priority: "urgent",
-    });
+    const result = updateTaskSchema.safeParse({ title: "Updated title", priority: "urgent" });
     expect(result.success).toBe(true);
   });
 
   it("accepts status update", () => {
-    const result = updateTaskSchema.safeParse({
-      status: "completed",
-    });
+    const result = updateTaskSchema.safeParse({ status: "completed" });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid status", () => {
-    const result = updateTaskSchema.safeParse({
-      status: "deleted",
-    });
+    const result = updateTaskSchema.safeParse({ status: "deleted" });
     expect(result.success).toBe(false);
   });
 });
 
 describe("assignTaskSchema", () => {
   it("accepts valid assignment", () => {
-    const result = assignTaskSchema.safeParse({
-      membershipIds: ["member-1", "member-2"],
-    });
+    const result = assignTaskSchema.safeParse({ membershipIds: ["member-1", "member-2"] });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty assignment", () => {
-    const result = assignTaskSchema.safeParse({
-      membershipIds: [],
-    });
+    const result = assignTaskSchema.safeParse({ membershipIds: [] });
     expect(result.success).toBe(false);
   });
 });
 
 describe("rejectTaskSchema", () => {
   it("accepts valid rejection", () => {
-    const result = rejectTaskSchema.safeParse({
-      rejectionReason: "schedule_conflict",
-    });
+    const result = rejectTaskSchema.safeParse({ rejectionReason: "schedule_conflict" });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty reason", () => {
-    const result = rejectTaskSchema.safeParse({
-      rejectionReason: "",
-    });
+    const result = rejectTaskSchema.safeParse({ rejectionReason: "" });
     expect(result.success).toBe(false);
   });
 });
 
 describe("setAvailabilitySchema", () => {
   it("accepts valid availability", () => {
-    const result = setAvailabilitySchema.safeParse({
-      dayOfWeek: 1,
-      startTime: "09:00",
-      endTime: "17:00",
-      isAvailable: true,
-    });
+    const result = setAvailabilitySchema.safeParse({ dayOfWeek: 1, startTime: "09:00", endTime: "17:00", isAvailable: true });
     expect(result.success).toBe(true);
   });
 
   it("rejects invalid day", () => {
-    const result = setAvailabilitySchema.safeParse({
-      dayOfWeek: 7,
-      startTime: "09:00",
-      endTime: "17:00",
-      isAvailable: true,
-    });
+    const result = setAvailabilitySchema.safeParse({ dayOfWeek: 7, startTime: "09:00", endTime: "17:00", isAvailable: true });
     expect(result.success).toBe(false);
   });
 
   it("rejects invalid time format", () => {
-    const result = setAvailabilitySchema.safeParse({
-      dayOfWeek: 1,
-      startTime: "9am",
-      endTime: "5pm",
-      isAvailable: true,
-    });
+    const result = setAvailabilitySchema.safeParse({ dayOfWeek: 1, startTime: "9am", endTime: "5pm", isAvailable: true });
     expect(result.success).toBe(false);
   });
 });
 
 describe("setWeeklyAvailabilitySchema", () => {
   it("accepts full week schedule", () => {
-    const schedule = Array.from({ length: 7 }, (_, i) => ({
-      dayOfWeek: i,
-      startTime: "09:00",
-      endTime: "17:00",
-      isAvailable: i < 5,
-    }));
+    const schedule = Array.from({ length: 7 }, (_, i) => ({ dayOfWeek: i, startTime: "09:00", endTime: "17:00", isAvailable: i < 5 }));
     const result = setWeeklyAvailabilitySchema.safeParse({ schedule });
     expect(result.success).toBe(true);
   });
@@ -495,46 +437,29 @@ describe("setWeeklyAvailabilitySchema", () => {
 
 describe("createAvailabilityOverrideSchema", () => {
   it("accepts valid override", () => {
-    const result = createAvailabilityOverrideSchema.safeParse({
-      date: "2026-06-15T00:00:00.000Z",
-      isAvailable: false,
-      reason: "Personal day off",
-    });
+    const result = createAvailabilityOverrideSchema.safeParse({ date: "2026-06-15T00:00:00.000Z", isAvailable: false, reason: "Personal day off" });
     expect(result.success).toBe(true);
   });
 
   it("accepts override without reason", () => {
-    const result = createAvailabilityOverrideSchema.safeParse({
-      date: "2026-06-15T00:00:00.000Z",
-      isAvailable: true,
-    });
+    const result = createAvailabilityOverrideSchema.safeParse({ date: "2026-06-15T00:00:00.000Z", isAvailable: true });
     expect(result.success).toBe(true);
   });
 });
 
 describe("createCertificationSchema", () => {
   it("accepts valid certification", () => {
-    const result = createCertificationSchema.safeParse({
-      name: "Food Safety Level 2",
-      issuedDate: "2026-01-15T00:00:00.000Z",
-      expiryDate: "2027-01-15T00:00:00.000Z",
-    });
+    const result = createCertificationSchema.safeParse({ name: "Food Safety Level 2", issuedDate: "2026-01-15T00:00:00.000Z", expiryDate: "2027-01-15T00:00:00.000Z" });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty name", () => {
-    const result = createCertificationSchema.safeParse({
-      name: "",
-      issuedDate: "2026-01-15T00:00:00.000Z",
-    });
+    const result = createCertificationSchema.safeParse({ name: "", issuedDate: "2026-01-15T00:00:00.000Z" });
     expect(result.success).toBe(false);
   });
 
   it("accepts certification without expiry", () => {
-    const result = createCertificationSchema.safeParse({
-      name: "First Aid",
-      issuedDate: "2026-01-15T00:00:00.000Z",
-    });
+    const result = createCertificationSchema.safeParse({ name: "First Aid", issuedDate: "2026-01-15T00:00:00.000Z" });
     expect(result.success).toBe(true);
   });
 });
@@ -558,29 +483,17 @@ describe("verifyCertificationSchema", () => {
 
 describe("createEligibilityOverrideSchema", () => {
   it("accepts valid override", () => {
-    const result = createEligibilityOverrideSchema.safeParse({
-      membershipId: "member-123",
-      reason: "Manager approved exception",
-      ruleOverridden: "hours_limit",
-    });
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved exception", ruleOverridden: "hours_limit" });
     expect(result.success).toBe(true);
   });
 
   it("rejects empty reason", () => {
-    const result = createEligibilityOverrideSchema.safeParse({
-      membershipId: "member-123",
-      reason: "",
-      ruleOverridden: "certification",
-    });
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "", ruleOverridden: "certification" });
     expect(result.success).toBe(false);
   });
 
   it("rejects invalid rule", () => {
-    const result = createEligibilityOverrideSchema.safeParse({
-      membershipId: "member-123",
-      reason: "Special case",
-      ruleOverridden: "invalid_rule",
-    });
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Special case", ruleOverridden: "invalid_rule" });
     expect(result.success).toBe(false);
   });
 });

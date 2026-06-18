@@ -164,6 +164,20 @@ describe("ReportingService — Calendar methods", () => {
       expect(wedSeventeen?.count).toBe(0); // after availability ends
       expect(wedNine?.count).toBe(1);      // within availability
     });
+
+    it("counts all 24 hours for staff available 00:00-24:00", async () => {
+      await createStaffWithAvailability("allday@test.com", orgId, [
+        { dayOfWeek: 3, startTime: "00:00", endTime: "24:00", isAvailable: true },
+      ]);
+
+      const coverage = await reportingService.getCalendarCoverage(orgId);
+      const wednesdayCoverage = coverage.filter(
+        (c) => c.dayOfWeek === 3 && c.count > 0
+      );
+
+      expect(wednesdayCoverage).toHaveLength(24);
+      expect(wednesdayCoverage.every((c) => c.count === 1)).toBe(true);
+    });
   });
 
   describe("getAllStaffSchedules", () => {

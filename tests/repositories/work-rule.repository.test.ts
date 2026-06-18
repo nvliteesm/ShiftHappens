@@ -1,7 +1,8 @@
 /**
  * Tests for Work Rule Repository (Entity Layer)
+ *
  * Verifies CRUD, name uniqueness, applicable rules lookup,
- * and org-scoped isolation.
+ * org-scoped isolation, and role deletion cascade behavior.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
@@ -160,11 +161,7 @@ describe("WorkRuleRepository", () => {
 
     it("returns role-specific rules when roleId matches", async () => {
       const role = await prisma.role.create({
-        data: {
-          organizationId: orgId,
-          name: "chef",
-          displayLabel: "Chef",
-        },
+        data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
       });
 
       await workRuleRepo.create({
@@ -181,11 +178,7 @@ describe("WorkRuleRepository", () => {
 
     it("excludes role-specific rules when roleId does not match", async () => {
       const role = await prisma.role.create({
-        data: {
-          organizationId: orgId,
-          name: "chef",
-          displayLabel: "Chef",
-        },
+        data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
       });
 
       await workRuleRepo.create({
@@ -215,11 +208,7 @@ describe("WorkRuleRepository", () => {
 
     it("returns both global and role-specific rules", async () => {
       const role = await prisma.role.create({
-        data: {
-          organizationId: orgId,
-          name: "chef",
-          displayLabel: "Chef",
-        },
+        data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
       });
 
       await workRuleRepo.create({
@@ -269,11 +258,7 @@ describe("WorkRuleRepository", () => {
         breakHours: 1,
       });
 
-      const exists = await workRuleRepo.existsByName(
-        orgId,
-        "Standard break",
-        rule.id
-      );
+      const exists = await workRuleRepo.existsByName(orgId, "Standard break", rule.id);
       expect(exists).toBe(false);
     });
   });
@@ -322,6 +307,57 @@ describe("WorkRuleRepository", () => {
 
       const found = await workRuleRepo.findById(rule.id);
       expect(found).toBeNull();
+    });
+  });
+
+  describe("role deletion cascade", () => {
+    it("sets roleId to null when referenced Role is deleted", async () => {
+      const role = await prisma.role.create({
+        data: { organizationId: orgId, name: "chef", displayLabel: "Chef" },
+      });
+
+      const rule = await workRuleRepo.create({
+        organizationId: orgId,
+        name: "Chef daily limit",
+        type: "max_hours_daily",
+        maxHours: 10,
+        roleId: role.id,
+      });
+      expect(rule.roleId).toBe(role.id);
+
+      // Delete the role — onDelete: SetNull should null out the reference
+      await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+      await prisma.role.delete({ where: { id: role.id } });
+
+      // Work rule should still exist but with null roleId
+      const rules = await workRuleRepo.findByOrganizationId(orgId);
+      const updatedRule = rules.find((r) => r.id === rule.id);
+      expect(updatedRule).toBeDefined();
+      expect(updatedRule!.roleId).toBeNull();
+    });
+
+    it("global rules are unaffected by role deletion", async () => {
+      const role = await prisma.role.create({
+        data: { organizationId: orgId, name: "temp", displayLabel: "Temp" },
+      });
+
+      const globalRule = await workRuleRepo.create({
+        organizationId: orgId,
+        name: "Global daily limit",
+        type: "max_hours_daily",
+        maxHours: 12,
+        isActive: true,
+      });
+
+      await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
+      await prisma.role.delete({ where: { id: role.id } });
+
+      const rules = await workRuleRepo.findByOrganizationId(orgId);
+      const found = rules.find((r) => r.id === globalRule.id);
+      expect(found).toBeDefined();
+      expect(found!.name).toBe("Global daily limit");
+      expect(found!.maxHours).toBe(12);
+      expect(found!.roleId).toBeNull();
     });
   });
 });

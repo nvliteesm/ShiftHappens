@@ -1,11 +1,12 @@
 /**
  * Task Service (Control Layer)
- * 
+ *
  * Business logic for task management including:
  * - Task CRUD with schedule validation
  * - Staff assignment with headcount and conflict checks
  * - Department and staff task views
- * 
+ * - Notification triggers on assignment
+ *
  * Enforces rules:
  * - End time must be after start time
  * - Cannot exceed required headcount
@@ -17,6 +18,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -24,6 +26,7 @@ export class TaskService {
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
+  private notificationService = new NotificationService();
 
   /**
    * Creates a new task in an organization.
@@ -86,13 +89,11 @@ export class TaskService {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
-    // Validate schedule: must have both or neither
     const startProvided = "scheduledStart" in input;
     const endProvided = "scheduledEnd" in input;
     const newStart = startProvided ? (input.scheduledStart || null) : (task.scheduledStart?.toISOString() ?? null);
     const newEnd = endProvided ? (input.scheduledEnd || null) : (task.scheduledEnd?.toISOString() ?? null);
 
-    // Must have both or neither
     if ((newStart && !newEnd) || (!newStart && newEnd)) {
       throw new Error("Must provide both start and end time, or clear both");
     }
@@ -145,10 +146,8 @@ export class TaskService {
 
   /**
    * Assigns staff members to a task.
-   * Checks:
-   * 1. Task exists
-   * 2. Total assignments won't exceed requiredHeadcount
-   * 3. No scheduling conflicts for each member
+   * Checks headcount, admin guard, scheduling conflicts.
+   * Notifies each assigned staff member (fire-and-forget).
    */
   async assignStaff(
     taskId: string,
@@ -159,7 +158,6 @@ export class TaskService {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
 
-    // Check headcount
     const currentCount = await this.assignmentRepo.countActiveByTaskId(taskId);
     if (currentCount + membershipIds.length > task.requiredHeadcount) {
       throw new Error(
@@ -167,7 +165,6 @@ export class TaskService {
       );
     }
 
-    // Verify assigned members are not Company Admins
     for (const membId of membershipIds) {
       const membership = await this.membershipRepo.findById(membId);
       if (membership?.role === "company_admin") {
@@ -175,7 +172,6 @@ export class TaskService {
       }
     }
 
-    // Check scheduling conflicts for each member
     if (task.scheduledStart && task.scheduledEnd) {
       for (const membId of membershipIds) {
         const conflicts = await this.taskRepo.findConflictingTasks(
@@ -192,11 +188,9 @@ export class TaskService {
       }
     }
 
-    // Check task acceptance mode
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     const assignmentStatus = settings.taskAcceptanceMode === "auto_accept" ? "accepted" : "pending";
 
-    // Create assignments
     const assignments = [];
     for (const membId of membershipIds) {
       const assignment = await this.assignmentRepo.create({
@@ -216,6 +210,21 @@ export class TaskService {
       entityId: taskId,
       details: { membershipIds, status: assignmentStatus },
     });
+
+    // Notify each assigned staff member (fire-and-forget)
+    for (const membId of membershipIds) {
+      const membership = await this.membershipRepo.findById(membId);
+      if (membership) {
+        void this.notificationService.notify(
+          membership.userId,
+          NOTIFICATION_TYPES.TASK_ASSIGNED,
+          "New task assignment",
+          `You've been assigned to "${task.title}"`,
+          "assignment",
+          taskId
+        );
+      }
+    }
 
     return assignments;
   }

@@ -27,6 +27,7 @@ model User {
   certificationsVerified Certification[]        @relation("CertificationVerifier")
   eligibilityOverrides   EligibilityOverride[]  @relation("EligibilityOverrider")
   auditLogs              AuditLog[]
+  notifications          Notification[]
 }
 
 model Organization {
@@ -359,6 +360,23 @@ model AuditLog {
   @@index([organizationId, createdAt])
   @@index([action])
   @@index([entityType, entityId])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model WorkRule {

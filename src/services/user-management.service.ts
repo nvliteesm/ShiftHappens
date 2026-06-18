@@ -1,12 +1,12 @@
 /**
  * User Management Service (Control Layer)
- * 
+ *
  * Orchestrates user management within an organization:
  * - Listing organization members
- * - Inviting new users via email
+ * - Inviting new users via email (with invitation email)
  * - Updating member roles and department assignments
  * - Activating/deactivating members
- * 
+ *
  * BCE: Sits between Boundary (API routes) and Entity (repositories).
  * Only Company Admin can perform these operations (enforced at Boundary).
  */
@@ -16,6 +16,7 @@ import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { prisma } from "@/lib/prisma";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
 export class UserManagementService {
@@ -36,7 +37,8 @@ export class UserManagementService {
    * 2. Check for existing pending invitation
    * 3. Generate secure invitation token
    * 4. Create invitation record
-   * 5. Send invitation email
+   * 5. Log audit event
+   * 6. Send invitation email (fire-and-forget)
    */
   async inviteUser(
     input: InviteUserInput,
@@ -85,7 +87,47 @@ export class UserManagementService {
       details: { email: input.email, role: input.role },
     });
 
+    // Send invitation email (fire-and-forget — never blocks or fails the invite)
+    this.sendInvitationEmailAsync(
+      input.email,
+      token,
+      organizationId,
+      invitedById
+    );
+
     return invitation;
+  }
+
+  /**
+   * Sends the invitation email asynchronously.
+   * Fetches org name and inviter name, then delegates to EmailService.
+   * Errors are logged but never propagated — the invitation is
+   * already created regardless of email delivery.
+   */
+  private async sendInvitationEmailAsync(
+    email: string,
+    token: string,
+    organizationId: string,
+    invitedById: string
+  ) {
+    try {
+      const [org, inviter] = await Promise.all([
+        prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { name: true },
+        }),
+        this.userRepo.findById(invitedById),
+      ]);
+
+      await this.emailService.sendInvitationEmail(
+        email,
+        token,
+        org?.name || "your organization",
+        inviter?.name || inviter?.email || "A team member"
+      );
+    } catch (error) {
+      console.error("[Invite Email Error]", error);
+    }
   }
 
   /**

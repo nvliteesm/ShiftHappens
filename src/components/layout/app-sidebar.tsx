@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/layout/notification-bell";
 
 interface AppSidebarProps {
   user: {
@@ -118,7 +119,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         ))}
       </nav>
       <div className="border-t pt-4 space-y-2">
-        <p className="text-sm font-medium">{user.name}</p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">{user.name}</p>
+          <NotificationBell orgId={orgId} />
+        </div>
         <p className="text-xs text-muted-foreground">{user.email}</p>
         <div className="flex gap-2">
           {mounted && (

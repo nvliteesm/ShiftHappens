@@ -6,6 +6,7 @@
 import { prisma } from "@/lib/prisma";
 
 export async function cleanDatabase() {
+  await prisma.notification.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.eligibilityOverride.deleteMany();
   await prisma.certification.deleteMany();

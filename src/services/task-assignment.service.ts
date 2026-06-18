@@ -1,29 +1,32 @@
 /**
  * TaskAssignment Service (Control Layer)
- * 
+ *
  * Business logic for task assignment lifecycle:
  * - Accept/reject assignments (staff actions)
  * - Clock in/out (time tracking)
- * 
+ * - Notification triggers on accept/reject
+ *
  * Enforces status transition rules:
  * - pending → accepted (accept)
  * - pending → rejected (reject, requires reason)
  * - accepted → clocked in (clockIn)
  * - clocked in → completed (clockOut)
- * 
+ *
  * Authorization: Only the assigned member can perform
  * accept, reject, clockIn, and clockOut actions.
  */
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 
 export class TaskAssignmentService {
   private assignmentRepo = new TaskAssignmentRepository();
   private auditService = new AuditLogService();
+  private notificationService = new NotificationService();
 
   /**
    * Accepts a pending task assignment.
-   * Only the assigned member can accept.
+   * Notifies the admin/manager who assigned the task.
    */
   async accept(assignmentId: string, membershipId: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
@@ -48,12 +51,23 @@ export class TaskAssignmentService {
       details: { taskTitle: assignment.task.title },
     });
 
+    // Notify the admin/manager who assigned the task
+    const staffName = assignment.membership.user?.name || "A staff member";
+    void this.notificationService.notify(
+      assignment.assignedById,
+      NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED,
+      "Assignment accepted",
+      `${staffName} accepted "${assignment.task.title}"`,
+      "task",
+      assignment.task.id
+    );
+
     return result;
   }
 
   /**
    * Rejects a pending task assignment with a required reason.
-   * Only the assigned member can reject.
+   * Notifies the admin/manager who assigned the task.
    */
   async reject(assignmentId: string, membershipId: string, reason: string, notes?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
@@ -77,6 +91,17 @@ export class TaskAssignmentService {
       entityId: assignmentId,
       details: { reason, notes, taskTitle: assignment.task.title },
     });
+
+    // Notify the admin/manager who assigned the task
+    const staffName = assignment.membership.user?.name || "A staff member";
+    void this.notificationService.notify(
+      assignment.assignedById,
+      NOTIFICATION_TYPES.ASSIGNMENT_REJECTED,
+      "Assignment rejected",
+      `${staffName} rejected "${assignment.task.title}" — ${reason.replace(/_/g, " ")}`,
+      "task",
+      assignment.task.id
+    );
 
     return result;
   }

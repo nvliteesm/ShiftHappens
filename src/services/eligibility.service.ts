@@ -8,7 +8,8 @@
  * 2. AVAILABILITY — Is the member available at the task's scheduled time?
  * 3. SCHEDULING — Does the member have conflicting assignments?
  * 4. WORK RULES — Does the assignment violate any custom work rules?
- *    (break_interval, max_hours_daily, max_hours_weekly)
+ *    Rules can target globally, by department, or by custom role.
+ *    Checks task duration against daily/weekly limits.
  *
  * Each dimension returns eligible/ineligible with a reason.
  * Eligibility overrides can bypass specific rules with documentation.
@@ -63,7 +64,7 @@ export class EligibilityService {
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
 
-    // Get all active work rules for this org (no role filtering — check all, filter per member later)
+    // Get all active work rules for this org
     const allWorkRules = await this.workRuleRepo.findApplicableRules(organizationId);
 
     // Get all active non-admin members
@@ -123,11 +124,18 @@ export class EligibilityService {
         task
       );
 
-      // 4. Check work rules
+      // 4. Check work rules — filtered by member's departments and custom role
+      const memberDeptIds = (member.departmentMemberships || []).map(
+        (dm: { department: { id: string } }) => dm.department.id
+      );
+      const memberCustomRoleId = (member as Record<string, unknown>).customRoleId as string | null;
+
       const workRulesCheck = await this.checkWorkRules(
         member.id,
         allWorkRules,
-        task
+        task,
+        memberDeptIds,
+        memberCustomRoleId || null
       );
 
       const eligible =
@@ -138,7 +146,8 @@ export class EligibilityService {
 
       results.push({
         membershipId: member.id,
-        memberName: member.user.name || member.user.email,
+        memberName: (member as { user: { name: string | null; email: string } }).user.name ||
+          (member as { user: { name: string | null; email: string } }).user.email,
         eligible,
         checks: {
           hoursLimit: hoursCheck,
@@ -233,24 +242,59 @@ export class EligibilityService {
   }
 
   /**
-   * Checks all applicable work rules against a staff member.
-   * Returns ineligible with the first violated rule's name and reason.
+   * Checks applicable work rules against a staff member.
+   * Rules are filtered by targeting:
+   * - Global rules (no roleId, no departmentId) → apply to all
+   * - Department rules → apply if member is in that department
+   * - Role rules → apply if member has that custom role
+   * - Both set → apply if member matches both
    *
-   * Rule types:
-   * - break_interval: hours worked in last 24h vs threshold
-   * - max_hours_daily: hours worked on the task's scheduled date
-   * - max_hours_weekly: hours worked in the task's scheduled week
+   * Task duration is added to already-worked hours before comparing
+   * against daily/weekly limits.
+   *
+   * Returns ineligible with the first violated rule's name and reason.
    */
   private async checkWorkRules(
     membershipId: string,
     rules: Awaited<ReturnType<WorkRuleRepository["findApplicableRules"]>>,
-    task: { scheduledStart: Date | null; scheduledEnd: Date | null }
+    task: { scheduledStart: Date | null; scheduledEnd: Date | null },
+    memberDepartmentIds: string[],
+    memberCustomRoleId: string | null
   ): Promise<EligibilityCheck> {
     if (rules.length === 0) {
       return { eligible: true };
     }
 
-    for (const rule of rules) {
+    // Filter rules to only those applicable to this member
+    const applicableRules = rules.filter((rule) => {
+      const ruleRoleId = rule.roleId || null;
+      const ruleDeptId = (rule as Record<string, unknown>).departmentId as string | null;
+
+      // Global rule — no targeting
+      if (!ruleRoleId && !ruleDeptId) return true;
+
+      // Department-targeted rule
+      if (ruleDeptId && !ruleRoleId) {
+        return memberDepartmentIds.includes(ruleDeptId);
+      }
+
+      // Role-targeted rule
+      if (ruleRoleId && !ruleDeptId) {
+        return memberCustomRoleId === ruleRoleId;
+      }
+
+      // Both targeted — must match both
+      if (ruleRoleId && ruleDeptId) {
+        return (
+          memberDepartmentIds.includes(ruleDeptId) &&
+          memberCustomRoleId === ruleRoleId
+        );
+      }
+
+      return false;
+    });
+
+    for (const rule of applicableRules) {
       let violated = false;
       let reason = "";
 
@@ -266,27 +310,29 @@ export class EligibilityService {
         }
 
         case "max_hours_daily": {
-          if (!rule.maxHours || !task.scheduledStart) break;
+          if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
           const dailyHours = await this.getHoursOnDate(
             membershipId,
             task.scheduledStart
           );
-          if (dailyHours >= rule.maxHours) {
+          const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
+          if (dailyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `Already worked ${dailyHours.toFixed(1)}h on this day (rule "${rule.name}": max ${rule.maxHours}h/day)`;
+            reason = `This ${taskDuration.toFixed(1)}h task + ${dailyHours.toFixed(1)}h already worked exceeds limit (rule "${rule.name}": max ${rule.maxHours}h/day)`;
           }
           break;
         }
 
         case "max_hours_weekly": {
-          if (!rule.maxHours || !task.scheduledStart) break;
+          if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
           const weeklyHours = await this.getHoursInWeek(
             membershipId,
             task.scheduledStart
           );
-          if (weeklyHours >= rule.maxHours) {
+          const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
+          if (weeklyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `Already worked ${weeklyHours.toFixed(1)}h this week (rule "${rule.name}": max ${rule.maxHours}h/week)`;
+            reason = `This ${taskDuration.toFixed(1)}h task + ${weeklyHours.toFixed(1)}h this week exceeds limit (rule "${rule.name}": max ${rule.maxHours}h/week)`;
           }
           break;
         }
@@ -345,7 +391,7 @@ export class EligibilityService {
   ): Promise<number> {
     const weekStart = new Date(date);
     const day = weekStart.getDay();
-    const diff = day === 0 ? -6 : 1 - day; // Monday-based week
+    const diff = day === 0 ? -6 : 1 - day;
     weekStart.setDate(weekStart.getDate() + diff);
     weekStart.setHours(0, 0, 0, 0);
 

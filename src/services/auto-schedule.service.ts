@@ -433,7 +433,12 @@ export class AutoScheduleService {
 
     // Parse AI response
     try {
-      return this.parseAIResponse(aiResponse, context);
+      const parsed = this.parseAIResponse(aiResponse, context);
+      if (parsed.assignments.length === 0 && context.tasks.length > 0) {
+        console.log("[Auto-Schedule] AI produced no valid assignments, using algorithmic fallback");
+        return this.generateAlgorithmic(context);
+      }
+      return parsed;
     } catch {
       console.log("[Auto-Schedule] Failed to parse AI response, using algorithmic");
       return this.generateAlgorithmic(context);

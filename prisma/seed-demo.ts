@@ -1,10 +1,10 @@
 /**
  * Demo Data Seed Script
- * 
+ *
  * Creates realistic demo data for testing:
  * - 1 Company Admin
- * - 2 Managers
- * - 5 Staff members
+ * - 2 Managers (with department assignments)
+ * - 8 Staff members (with department assignments)
  * - 3 Departments (with colors)
  * - 5 upcoming tasks (tomorrow)
  * - 15+ historical completed tasks (past 7 days)
@@ -13,7 +13,7 @@
  * - Availability schedules
  * - Certifications
  * - Company settings
- * 
+ *
  * Run with: npx tsx prisma/seed-demo.ts
  */
 import { PrismaClient } from "@prisma/client";
@@ -24,7 +24,6 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding demo data...");
 
-  // Get the existing org or create one
   let org = await prisma.organization.findFirst();
   let adminUser = await prisma.user.findFirst();
 
@@ -215,6 +214,92 @@ async function main() {
   console.log("Created 5 staff with availability schedules");
 
   // ============================================================
+  // Assign staff to departments
+  // ============================================================
+  const staffDeptAssignments = [
+    { staffIndex: 0, dept: "Kitchen" },         // Alex → Kitchen
+    { staffIndex: 1, dept: "Kitchen" },         // Jamie → Kitchen
+    { staffIndex: 2, dept: "Kitchen" },         // Taylor → Kitchen
+    { staffIndex: 3, dept: "Bar" },             // Jordan → Bar
+    { staffIndex: 4, dept: "Front of House" },  // Casey → Front of House
+  ];
+
+  for (const assignment of staffDeptAssignments) {
+    const dept = departments.find((d) => d.name === assignment.dept);
+    if (dept) {
+      const existing = await prisma.departmentMembership.findUnique({
+        where: {
+          membershipId_departmentId: {
+            membershipId: staffMembershipIds[assignment.staffIndex],
+            departmentId: dept.id,
+          },
+        },
+      });
+      if (!existing) {
+        await prisma.departmentMembership.create({
+          data: {
+            membershipId: staffMembershipIds[assignment.staffIndex],
+            departmentId: dept.id,
+          },
+        });
+      }
+    }
+  }
+
+  console.log("Assigned staff to departments");
+
+  // ============================================================
+  // Extra demo staff (for live demo login)
+  // ============================================================
+  const extraStaff = [
+    { name: "Sam Wilson", email: "sam@oceangrill.com", dept: "Bar" },
+    { name: "Riley Chen", email: "riley@oceangrill.com", dept: "Front of House" },
+    { name: "Morgan Taylor", email: "morgan@oceangrill.com", dept: "Kitchen" },
+  ];
+
+  for (const staff of extraStaff) {
+    let user = await prisma.user.findUnique({ where: { email: staff.email } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          name: staff.name,
+          email: staff.email,
+          hashedPassword,
+          emailVerified: new Date(),
+        },
+      });
+    }
+
+    let membership = await prisma.membership.findUnique({
+      where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
+    });
+    if (!membership) {
+      membership = await prisma.membership.create({
+        data: {
+          userId: user.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+    }
+
+    const dept = departments.find((d) => d.name === staff.dept);
+    if (dept) {
+      const existing = await prisma.departmentMembership.findUnique({
+        where: { membershipId_departmentId: { membershipId: membership.id, departmentId: dept.id } },
+      });
+      if (!existing) {
+        await prisma.departmentMembership.create({
+          data: { membershipId: membership.id, departmentId: dept.id },
+        });
+      }
+    }
+  }
+
+  console.log("Created 3 extra demo staff");
+
+  // ============================================================
   // Certifications
   // ============================================================
   const certData = [
@@ -318,24 +403,19 @@ async function main() {
     const end = new Date(tomorrow);
     end.setHours(t.endHour);
 
-    const existing = await prisma.task.findFirst({
-      where: { title: t.title, organizationId: orgId },
+    await prisma.task.create({
+      data: {
+        title: t.title,
+        description: t.description,
+        organizationId: orgId,
+        departmentId: t.departmentId,
+        priority: t.priority,
+        requiredHeadcount: t.requiredHeadcount,
+        scheduledStart: start,
+        scheduledEnd: end,
+        createdById: adminUser!.id,
+      },
     });
-    if (!existing) {
-      await prisma.task.create({
-        data: {
-          title: t.title,
-          description: t.description,
-          organizationId: orgId,
-          departmentId: t.departmentId,
-          priority: t.priority,
-          requiredHeadcount: t.requiredHeadcount,
-          scheduledStart: start,
-          scheduledEnd: end,
-          createdById: adminUser!.id,
-        },
-      });
-    }
   }
 
   console.log("Created 5 tasks for tomorrow");
@@ -387,11 +467,6 @@ async function main() {
       const dateLabel = taskDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
       const taskTitle = `${departments[deptIndex].name} - ${dateLabel} #${t + 1}`;
 
-      const existing = await prisma.task.findFirst({
-        where: { title: taskTitle, organizationId: orgId },
-      });
-      if (existing) continue;
-
       const task = await prisma.task.create({
         data: {
           title: taskTitle,
@@ -411,13 +486,6 @@ async function main() {
       for (let a = 0; a < assignCount; a++) {
         const staffIndex = (daysAgo + t + a) % staffMembershipIds.length;
         const membershipId = staffMembershipIds[staffIndex];
-
-        const existingAssignment = await prisma.taskAssignment.findUnique({
-          where: {
-            taskId_membershipId: { taskId: task.id, membershipId },
-          },
-        });
-        if (existingAssignment) continue;
 
         const clockIn = new Date(startTime);
         clockIn.setMinutes(clockIn.getMinutes() + 5 + a * 2);
@@ -484,7 +552,7 @@ async function main() {
   console.log("Created 5 rejected assignments (Alex: 3, Jamie: 2)");
 
   // ============================================================
-  // Platform Admin (separate user, not tied to any org)
+  // Platform Admin
   // ============================================================
   let platformAdmin = await prisma.user.findUnique({
     where: { email: "platform@smarttask.com" },
@@ -519,11 +587,14 @@ async function main() {
   console.log("  Admin:    admin@oceangrill.com");
   console.log("  Manager:  sarah@oceangrill.com (Kitchen)");
   console.log("  Manager:  marcus@oceangrill.com (Bar)");
-  console.log("  Staff:    alex@oceangrill.com (Morning, Mon-Fri)");
-  console.log("  Staff:    jamie@oceangrill.com (Evening, Mon-Sat)");
-  console.log("  Staff:    taylor@oceangrill.com (Full day, Mon-Fri)");
-  console.log("  Staff:    jordan@oceangrill.com (Part time, Wed-Sun)");
-  console.log("  Staff:    casey@oceangrill.com (Flexible, all week)");
+  console.log("  Staff:    alex@oceangrill.com (Kitchen, Morning Mon-Fri)");
+  console.log("  Staff:    jamie@oceangrill.com (Kitchen, Evening Mon-Sat)");
+  console.log("  Staff:    taylor@oceangrill.com (Kitchen, Full day Mon-Fri)");
+  console.log("  Staff:    jordan@oceangrill.com (Bar, Part time Wed-Sun)");
+  console.log("  Staff:    casey@oceangrill.com (Front of House, Flexible all week)");
+  console.log("  Staff:    sam@oceangrill.com (Bar)");
+  console.log("  Staff:    riley@oceangrill.com (Front of House)");
+  console.log("  Staff:    morgan@oceangrill.com (Kitchen)");
 }
 
 main()

@@ -38,10 +38,10 @@ interface DraftSchedule {
   };
 }
 
-function getNextMonday(): string {
+function getThisMonday(): string {
   const d = new Date();
   const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
+  const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d.toISOString().split("T")[0];
@@ -59,7 +59,7 @@ export default function AutoSchedulePage() {
   const router = useRouter();
   const orgId = params.orgId as string;
 
-  const [weekStart, setWeekStart] = useState(getNextMonday());
+  const [weekStart, setWeekStart] = useState(getThisMonday());
   const [draft, setDraft] = useState<DraftSchedule | null>(null);
   const [generating, setGenerating] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -86,11 +86,13 @@ export default function AutoSchedulePage() {
       }
 
       const data: DraftSchedule = await res.json();
-      setDraft(data);
 
       if (data.assignments.length === 0 && data.unfilledTasks.length === 0) {
-        setError("No open tasks found for the selected week that need staffing.");
+        setError("No open tasks found for the selected week that need staffing. Try a different week or create tasks first.");
+        return;
       }
+
+      setDraft(data);
     } catch {
       setError("Something went wrong");
     } finally {
@@ -167,51 +169,65 @@ export default function AutoSchedulePage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
+        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 p-3 text-sm text-red-600 dark:text-red-300">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">
+        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 p-3 text-sm text-green-600 dark:text-green-300">
           {success}
         </div>
       )}
 
-      {/* Week selector + generate */}
-      {!draft && !generating && (
-        <div className="rounded-lg border p-6 space-y-4">
+      {/* Week selector + generate — always visible when no draft */}
+      {!draft && (
+        <div className="rounded-lg border bg-card p-6 space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium">Week starting</label>
-            <input
-              type="date"
-              value={weekStart}
-              onChange={(e) => setWeekStart(e.target.value)}
-              className="rounded-md border px-3 py-2 text-sm bg-background"
-            />
-            <p className="text-xs text-muted-foreground">
-              {formatWeekRange(weekStart)}
-            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={weekStart}
+                onChange={(e) => setWeekStart(e.target.value)}
+                className="rounded-md border px-3 py-2 text-sm bg-background text-foreground"
+                disabled={generating}
+              />
+              <span className="text-sm text-muted-foreground">
+                {formatWeekRange(weekStart)}
+              </span>
+            </div>
           </div>
           <Button onClick={handleGenerate} disabled={generating}>
-            Generate schedule
+            {generating ? "Generating..." : "Generate schedule"}
           </Button>
-        </div>
-      )}
-
-      {/* Loading state */}
-      {generating && (
-        <div className="rounded-lg border p-12 text-center">
-          <div className="text-lg font-medium mb-2">Generating schedule...</div>
-          <p className="text-sm text-muted-foreground">
-            Analyzing tasks, availability, certifications, and work rules
-          </p>
+          {generating && (
+            <p className="text-sm text-muted-foreground">
+              Analyzing tasks, availability, certifications, and work rules...
+            </p>
+          )}
         </div>
       )}
 
       {/* Draft review */}
       {draft && draft.assignments.length > 0 && (
         <>
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Draft for {formatWeekRange(weekStart)} — review and adjust before confirming
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleDiscard}>
+                Discard
+              </Button>
+              <Button onClick={handleConfirm} disabled={confirming}>
+                {confirming
+                  ? "Confirming..."
+                  : `Confirm schedule (${draft.assignments.length})`}
+              </Button>
+            </div>
+          </div>
+
           {/* Summary metrics */}
           <div className="grid grid-cols-4 gap-3 mb-4">
             <div className="rounded-md bg-muted/50 p-3">
@@ -220,26 +236,18 @@ export default function AutoSchedulePage() {
             </div>
             <div className="rounded-md bg-muted/50 p-3">
               <p className="text-xs text-muted-foreground">Assignments</p>
-              <p className="text-xl font-medium">
-                {draft.summary.totalAssignments}
-              </p>
+              <p className="text-xl font-medium">{draft.summary.totalAssignments}</p>
             </div>
             <div className="rounded-md bg-muted/50 p-3">
               <p className="text-xs text-muted-foreground">Unfilled</p>
-              <p
-                className={`text-xl font-medium ${draft.summary.totalUnfilled > 0 ? "text-amber-600" : ""}`}
-              >
+              <p className={`text-xl font-medium ${draft.summary.totalUnfilled > 0 ? "text-amber-600" : ""}`}>
                 {draft.summary.totalUnfilled}
               </p>
             </div>
             <div className="rounded-md bg-muted/50 p-3">
               <p className="text-xs text-muted-foreground">Total hours</p>
               <p className="text-xl font-medium">
-                {draft.summary.hoursDistribution.reduce(
-                  (sum, h) => sum + h.hours,
-                  0
-                )}
-                h
+                {draft.summary.hoursDistribution.reduce((sum, h) => sum + h.hours, 0)}h
               </p>
             </div>
           </div>
@@ -249,38 +257,24 @@ export default function AutoSchedulePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/30">
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">
-                    Task
-                  </th>
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">
-                    Staff
-                  </th>
-                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">
-                    Reasoning
-                  </th>
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Task</th>
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Staff</th>
+                  <th className="text-left font-medium px-4 py-3 text-muted-foreground">Reasoning</th>
                   <th className="w-16 px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
                 {draft.assignments.map((a, index) => (
-                  <tr
-                    key={`${a.taskId}-${a.membershipId}`}
-                    className="border-b last:border-b-0 hover:bg-muted/20"
-                  >
+                  <tr key={`${a.taskId}-${a.membershipId}`} className="border-b last:border-b-0 hover:bg-muted/20">
                     <td className="px-4 py-3 font-medium">{a.taskTitle}</td>
                     <td className="px-4 py-3">
                       <span className="inline-block rounded-full bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 px-2 py-0.5 text-xs">
                         {a.staffName}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {a.reasoning}
-                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">{a.reasoning}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleRemoveAssignment(index)}
-                        className="text-xs text-red-500 hover:underline"
-                      >
+                      <button onClick={() => handleRemoveAssignment(index)} className="text-xs text-red-500 hover:underline">
                         Remove
                       </button>
                     </td>
@@ -294,15 +288,10 @@ export default function AutoSchedulePage() {
           {draft.unfilledTasks.length > 0 && (
             <div className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-4 mb-4">
               <p className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-2">
-                {draft.unfilledTasks.length} task
-                {draft.unfilledTasks.length > 1 ? "s" : ""} could not be fully
-                staffed
+                {draft.unfilledTasks.length} task{draft.unfilledTasks.length > 1 ? "s" : ""} could not be fully staffed
               </p>
               {draft.unfilledTasks.map((t) => (
-                <p
-                  key={t.taskId}
-                  className="text-xs text-amber-700 dark:text-amber-300"
-                >
+                <p key={t.taskId} className="text-xs text-amber-700 dark:text-amber-300">
                   {t.taskTitle} — {t.reason}
                 </p>
               ))}
@@ -315,47 +304,17 @@ export default function AutoSchedulePage() {
               <p className="text-sm font-medium mb-3">Hours distribution</p>
               <div className="space-y-2">
                 {draft.summary.hoursDistribution.map((h) => (
-                  <div
-                    key={h.name}
-                    className="grid items-center gap-3"
-                    style={{ gridTemplateColumns: "100px 1fr 40px" }}
-                  >
-                    <span className="text-xs text-muted-foreground truncate">
-                      {h.name}
-                    </span>
+                  <div key={h.name} className="grid items-center gap-3" style={{ gridTemplateColumns: "100px 1fr 40px" }}>
+                    <span className="text-xs text-muted-foreground truncate">{h.name}</span>
                     <div className="h-2 rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-blue-500"
-                        style={{
-                          width: `${maxHours > 0 ? (h.hours / maxHours) * 100 : 0}%`,
-                        }}
-                      />
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${maxHours > 0 ? (h.hours / maxHours) * 100 : 0}%` }} />
                     </div>
-                    <span className="text-xs text-muted-foreground text-right">
-                      {h.hours}h
-                    </span>
+                    <span className="text-xs text-muted-foreground text-right">{h.hours}h</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
-
-          {/* Confirm / Discard */}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
-              Review the assignments above, then confirm or discard.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleDiscard}>
-                Discard
-              </Button>
-              <Button onClick={handleConfirm} disabled={confirming}>
-                {confirming
-                  ? "Confirming..."
-                  : `Confirm schedule (${draft.assignments.length})`}
-              </Button>
-            </div>
-          </div>
         </>
       )}
     </div>

@@ -4,12 +4,16 @@
  * Business logic for custom work rules including:
  * - CRUD with field validation per rule type
  * - Name uniqueness enforcement per organization
+ * - Department and role targeting
  * - Applicable rules lookup for eligibility engine
  *
  * Rule types and required fields:
  * - break_interval: hoursThreshold + breakHours
  * - max_hours_daily: maxHours
  * - max_hours_weekly: maxHours
+ *
+ * Targeting: rules can apply to all staff (global),
+ * a specific department, a specific custom role, or both.
  *
  * All operations are org-scoped and audit-logged.
  */
@@ -26,13 +30,11 @@ export class WorkRuleService {
    * Enforces name uniqueness per organization.
    */
   async create(input: CreateWorkRuleInput, orgId: string, userId: string) {
-    // Validate name uniqueness
     const nameExists = await this.workRuleRepo.existsByName(orgId, input.name);
     if (nameExists) {
       throw new Error("A work rule with this name already exists");
     }
 
-    // Validate required fields per type
     this.validateFieldsForType(input.type, input);
 
     const rule = await this.workRuleRepo.create({
@@ -40,6 +42,7 @@ export class WorkRuleService {
       name: input.name,
       type: input.type,
       roleId: input.roleId ?? null,
+      departmentId: (input as Record<string, unknown>).departmentId as string | null ?? null,
       hoursThreshold: input.hoursThreshold ?? null,
       breakHours: input.breakHours ?? null,
       maxHours: input.maxHours ?? null,
@@ -82,19 +85,13 @@ export class WorkRuleService {
     if (!existing) throw new Error("Work rule not found");
     if (existing.organizationId !== orgId) throw new Error("Work rule not found");
 
-    // Validate name uniqueness if changing name
     if (input.name && input.name !== existing.name) {
-      const nameExists = await this.workRuleRepo.existsByName(
-        orgId,
-        input.name,
-        ruleId
-      );
+      const nameExists = await this.workRuleRepo.existsByName(orgId, input.name, ruleId);
       if (nameExists) {
         throw new Error("A work rule with this name already exists");
       }
     }
 
-    // Validate required fields for the resulting type
     const effectiveType = input.type || existing.type;
     const merged = {
       hoursThreshold: input.hoursThreshold !== undefined ? input.hoursThreshold : existing.hoursThreshold,
@@ -103,19 +100,16 @@ export class WorkRuleService {
     };
     this.validateFieldsForType(effectiveType, merged);
 
+    const inputAny = input as Record<string, unknown>;
+
     const updated = await this.workRuleRepo.update(ruleId, {
       ...(input.name !== undefined && { name: input.name }),
       ...(input.type !== undefined && { type: input.type }),
       ...(input.roleId !== undefined && { roleId: input.roleId ?? null }),
-      ...(input.hoursThreshold !== undefined && {
-        hoursThreshold: input.hoursThreshold ?? null,
-      }),
-      ...(input.breakHours !== undefined && {
-        breakHours: input.breakHours ?? null,
-      }),
-      ...(input.maxHours !== undefined && {
-        maxHours: input.maxHours ?? null,
-      }),
+      ...(inputAny.departmentId !== undefined && { departmentId: inputAny.departmentId as string | null ?? null }),
+      ...(input.hoursThreshold !== undefined && { hoursThreshold: input.hoursThreshold ?? null }),
+      ...(input.breakHours !== undefined && { breakHours: input.breakHours ?? null }),
+      ...(input.maxHours !== undefined && { maxHours: input.maxHours ?? null }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
     });
 
@@ -151,7 +145,6 @@ export class WorkRuleService {
 
   /**
    * Gets active rules applicable to a given role context.
-   * Returns rules where roleId is null (all staff) or matches the given roleId.
    * Used by the eligibility engine during assignment checks.
    */
   async getApplicableRules(orgId: string, roleId?: string | null) {
@@ -160,9 +153,6 @@ export class WorkRuleService {
 
   /**
    * Validates that required fields are present for the given rule type.
-   * - break_interval: requires hoursThreshold and breakHours
-   * - max_hours_daily: requires maxHours
-   * - max_hours_weekly: requires maxHours
    */
   private validateFieldsForType(
     type: string,

@@ -60,9 +60,11 @@ model Membership {
   status         String   @default("active")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  customRoleId   String?
 
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customRole            Role? @relation("MembershipCustomRole", fields: [customRoleId], references: [id], onDelete: SetNull)
   departmentMemberships DepartmentMembership[]
   taskAssignments       TaskAssignment[]
   availabilities        Availability[]
@@ -128,6 +130,7 @@ model Department {
   updatedAt      DateTime @updatedAt
 
   organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workRules             WorkRule[]             @relation("WorkRuleDepartment")
   departmentMemberships DepartmentMembership[]
   tasks                 Task[]
 
@@ -178,7 +181,8 @@ model Role {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberCustomRoles Membership[]     @relation("MembershipCustomRole")
   rolePermissions RolePermission[]
   workRules       WorkRule[]
 
@@ -385,6 +389,7 @@ model WorkRule {
   name            String
   type            String   // "break_interval" | "max_hours_daily" | "max_hours_weekly"
   roleId          String?  // null = applies to all staff
+  departmentId    String?  // null = applies to all departments
   hoursThreshold  Float?   // for break_interval: every X hours
   breakHours      Float?   // for break_interval: require Y hours break
   maxHours        Float?   // for max_hours_daily/weekly: cap at X hours
@@ -394,6 +399,7 @@ model WorkRule {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role         Role?        @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  department   Department?  @relation("WorkRuleDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, name])
   @@index([organizationId])

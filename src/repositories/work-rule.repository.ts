@@ -5,10 +5,15 @@
  * daily/weekly hour limits). Supports org-scoped CRUD and
  * querying applicable rules for eligibility checks.
  *
+ * Rules can target globally, by department, or by custom role.
  * All queries are org-scoped for multi-tenant isolation.
- * Security: Prisma parameterized queries prevent SQL injection.
  */
 import { prisma } from "@/lib/prisma";
+
+const RULE_INCLUDE = {
+  role: { select: { id: true, name: true, displayLabel: true } },
+  department: { select: { id: true, name: true } },
+};
 
 export class WorkRuleRepository {
   /** Creates a new work rule within an organization */
@@ -17,6 +22,7 @@ export class WorkRuleRepository {
     name: string;
     type: string;
     roleId?: string | null;
+    departmentId?: string | null;
     hoursThreshold?: number | null;
     breakHours?: number | null;
     maxHours?: number | null;
@@ -28,14 +34,13 @@ export class WorkRuleRepository {
         name: data.name,
         type: data.type,
         roleId: data.roleId ?? null,
+        departmentId: data.departmentId ?? null,
         hoursThreshold: data.hoursThreshold ?? null,
         breakHours: data.breakHours ?? null,
         maxHours: data.maxHours ?? null,
         isActive: data.isActive ?? true,
       },
-      include: {
-        role: { select: { id: true, name: true, displayLabel: true } },
-      },
+      include: RULE_INCLUDE,
     });
   }
 
@@ -43,9 +48,7 @@ export class WorkRuleRepository {
   async findById(id: string) {
     return prisma.workRule.findUnique({
       where: { id },
-      include: {
-        role: { select: { id: true, name: true, displayLabel: true } },
-      },
+      include: RULE_INCLUDE,
     });
   }
 
@@ -53,17 +56,15 @@ export class WorkRuleRepository {
   async findByOrganizationId(organizationId: string) {
     return prisma.workRule.findMany({
       where: { organizationId },
-      include: {
-        role: { select: { id: true, name: true, displayLabel: true } },
-      },
+      include: RULE_INCLUDE,
       orderBy: { createdAt: "asc" },
     });
   }
 
   /**
-   * Finds active rules applicable to a specific context.
-   * Returns rules that either apply to all staff (roleId = null)
-   * or apply to the specified roleId.
+   * Finds all active rules for an organization.
+   * Returns ALL active rules — filtering by department/role
+   * is handled per-member in the eligibility engine.
    */
   async findApplicableRules(
     organizationId: string,
@@ -73,14 +74,14 @@ export class WorkRuleRepository {
       where: {
         organizationId,
         isActive: true,
-        OR: [
-          { roleId: null },
-          ...(roleId ? [{ roleId }] : []),
-        ],
+        ...(roleId ? {
+          OR: [
+            { roleId: null },
+            { roleId },
+          ],
+        } : {}),
       },
-      include: {
-        role: { select: { id: true, name: true, displayLabel: true } },
-      },
+      include: RULE_INCLUDE,
       orderBy: { createdAt: "asc" },
     });
   }
@@ -104,6 +105,7 @@ export class WorkRuleRepository {
       name?: string;
       type?: string;
       roleId?: string | null;
+      departmentId?: string | null;
       hoursThreshold?: number | null;
       breakHours?: number | null;
       maxHours?: number | null;
@@ -113,9 +115,7 @@ export class WorkRuleRepository {
     return prisma.workRule.update({
       where: { id },
       data,
-      include: {
-        role: { select: { id: true, name: true, displayLabel: true } },
-      },
+      include: RULE_INCLUDE,
     });
   }
 

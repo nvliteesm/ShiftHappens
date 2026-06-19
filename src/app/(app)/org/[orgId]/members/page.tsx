@@ -34,6 +34,11 @@ interface Member {
   }[];
 }
 
+interface Department {
+  id: string;
+  name: string;
+}
+
 interface Invitation {
   id: string;
   email: string;
@@ -45,12 +50,9 @@ interface Invitation {
 
 function RoleBadge({ role }: { role: string }) {
   const styles: Record<string, string> = {
-    company_admin:
-      "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
-    manager:
-      "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
-    staff:
-      "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+    company_admin: "bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300",
+    manager: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+    staff: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   };
   const labels: Record<string, string> = {
     company_admin: "Admin",
@@ -58,9 +60,7 @@ function RoleBadge({ role }: { role: string }) {
     staff: "Staff",
   };
   return (
-    <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles[role] || styles.staff}`}
-    >
+    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${styles[role] || styles.staff}`}>
       {labels[role] || role}
     </span>
   );
@@ -69,13 +69,7 @@ function RoleBadge({ role }: { role: string }) {
 function StatusDot({ status }: { status: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs">
-      <span
-        className={`inline-block h-2 w-2 rounded-full ${
-          status === "active"
-            ? "bg-green-500"
-            : "bg-red-400"
-        }`}
-      />
+      <span className={`inline-block h-2 w-2 rounded-full ${status === "active" ? "bg-green-500" : "bg-red-400"}`} />
       <span className="text-muted-foreground capitalize">{status}</span>
     </span>
   );
@@ -85,6 +79,7 @@ export default function MembersPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [members, setMembers] = useState<Member[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [showInvite, setShowInvite] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +88,7 @@ export default function MembersPage() {
 
   useEffect(() => {
     fetchMembers();
+    fetchDepartments();
     fetchInvitations();
   }, [orgId]);
 
@@ -107,22 +103,25 @@ export default function MembersPage() {
     }
   }
 
+  async function fetchDepartments() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/departments`);
+      if (res.ok) setDepartments(await res.json());
+    } catch { /* non-critical */ }
+  }
+
   async function fetchInvitations() {
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`);
       setInvitations(await res.json());
-    } catch {
-      // Invitations are secondary
-    }
+    } catch { /* non-critical */ }
   }
 
   async function onInviteUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setSuccess(null);
-
     const formData = new FormData(event.currentTarget);
-
     try {
       const res = await fetch(`/api/organizations/${orgId}/invitations`, {
         method: "POST",
@@ -130,16 +129,11 @@ export default function MembersPage() {
         body: JSON.stringify({
           email: formData.get("email"),
           role: formData.get("role"),
+          departmentId: formData.get("departmentId") || undefined,
         }),
       });
-
       const result = await res.json();
-
-      if (!res.ok) {
-        setError(result.error || "Failed to send invitation");
-        return;
-      }
-
+      if (!res.ok) { setError(result.error || "Failed to send invitation"); return; }
       setSuccess(`Invitation sent to ${formData.get("email")}`);
       setShowInvite(false);
       (event.target as HTMLFormElement).reset();
@@ -152,41 +146,30 @@ export default function MembersPage() {
   async function onToggleStatus(userId: string) {
     setError(null);
     try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/members/${userId}/toggle-status`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
-        const result = await res.json();
-        setError(result.error || "Failed to update status");
-        return;
-      }
+      const res = await fetch(`/api/organizations/${orgId}/members/${userId}/toggle-status`, { method: "POST" });
+      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update status"); return; }
       fetchMembers();
-    } catch {
-      setError("Something went wrong");
-    }
+    } catch { setError("Something went wrong"); }
   }
 
-  async function onUpdateRole(userId: string, newRole: string) {
+  async function onUpdateRole(userId: string, newRole: string, departmentIds?: string[]) {
     setError(null);
     try {
-      const res = await fetch(
-        `/api/organizations/${orgId}/members/${userId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: newRole }),
-        }
-      );
-      if (!res.ok) {
-        const result = await res.json();
-        setError(result.error || "Failed to update role");
-        return;
-      }
+      const body: { role: string; departmentIds?: string[] } = { role: newRole };
+      if (departmentIds !== undefined) body.departmentIds = departmentIds;
+      const res = await fetch(`/api/organizations/${orgId}/members/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { const r = await res.json(); setError(r.error || "Failed to update"); return; }
       fetchMembers();
-    } catch {
-      setError("Something went wrong");
-    }
+    } catch { setError("Something went wrong"); }
+  }
+
+  async function onUpdateDepartment(userId: string, currentRole: string, deptId: string) {
+    const departmentIds = deptId ? [deptId] : [];
+    await onUpdateRole(userId, currentRole, departmentIds);
   }
 
   const activeMembers = members.filter((m) => m.status === "active");
@@ -202,8 +185,7 @@ export default function MembersPage() {
           <h2 className="text-2xl font-bold">Members</h2>
           <p className="text-sm text-muted-foreground mt-1">
             {activeMembers.length} active · {inactiveMembers.length} inactive
-            {pendingInvitations.length > 0 &&
-              ` · ${pendingInvitations.length} pending`}
+            {pendingInvitations.length > 0 && ` · ${pendingInvitations.length} pending`}
           </p>
         </div>
         <Button onClick={() => setShowInvite(!showInvite)}>
@@ -212,48 +194,39 @@ export default function MembersPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">
-          {error}
-        </div>
+        <div className="mb-4 rounded-md bg-red-50 dark:bg-red-950 p-3 text-sm text-red-600 dark:text-red-300">{error}</div>
       )}
       {success && (
-        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">
-          {success}
-        </div>
+        <div className="mb-4 rounded-md bg-green-50 dark:bg-green-950 p-3 text-sm text-green-600 dark:text-green-300">{success}</div>
       )}
 
-      {/* Invite user form */}
       {showInvite && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Invite User</CardTitle>
-            <CardDescription>
-              Send an invitation email to add a new member
-            </CardDescription>
+            <CardDescription>Send an invitation email to add a new member</CardDescription>
           </CardHeader>
           <form onSubmit={onInviteUser}>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="invite-email">Email</Label>
-                  <Input
-                    id="invite-email"
-                    name="email"
-                    type="email"
-                    placeholder="name@example.com"
-                    required
-                  />
+                  <Input id="invite-email" name="email" type="email" placeholder="name@example.com" required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="invite-role">Role</Label>
-                  <select
-                    id="invite-role"
-                    name="role"
-                    className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-                    defaultValue="staff"
-                  >
+                  <select id="invite-role" name="role" className="w-full rounded-md border px-3 py-2 text-sm bg-background" defaultValue="staff">
                     <option value="staff">Staff</option>
                     <option value="manager">Manager</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="invite-dept">Department</Label>
+                  <select id="invite-dept" name="departmentId" className="w-full rounded-md border px-3 py-2 text-sm bg-background" defaultValue="">
+                    <option value="">None</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -263,7 +236,6 @@ export default function MembersPage() {
         </Card>
       )}
 
-      {/* Members table */}
       <div className="rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -276,64 +248,55 @@ export default function MembersPage() {
             </tr>
           </thead>
           <tbody>
-            {members.map((member) => (
-              <tr
-                key={member.id}
-                className={`border-b last:border-b-0 transition-colors hover:bg-muted/20 ${
-                  member.status !== "active" ? "opacity-50" : ""
-                }`}
-              >
-                <td className="px-4 py-3">
-                  <p className="font-medium">{member.user.name || "Unnamed"}</p>
-                  <p className="text-xs text-muted-foreground">{member.user.email}</p>
-                </td>
-                <td className="px-4 py-3">
-                  <RoleBadge role={member.role} />
-                </td>
-                <td className="px-4 py-3">
-                  {member.departmentMemberships.length > 0 ? (
-                    <span className="text-sm">
-                      {member.departmentMemberships
-                        .map((dm) => dm.department.name)
-                        .join(", ")}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <StatusDot status={member.status} />
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center justify-end gap-2">
+            {members.map((member) => {
+              const currentDeptId = member.departmentMemberships[0]?.department.id || "";
+              return (
+                <tr key={member.id} className={`border-b last:border-b-0 transition-colors hover:bg-muted/20 ${member.status !== "active" ? "opacity-50" : ""}`}>
+                  <td className="px-4 py-3">
+                    <p className="font-medium">{member.user.name || "Unnamed"}</p>
+                    <p className="text-xs text-muted-foreground">{member.user.email}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <RoleBadge role={member.role} />
+                  </td>
+                  <td className="px-4 py-3">
                     <select
                       className="rounded-md border px-2 py-1 text-xs bg-background"
-                      value={member.role}
-                      onChange={(e) =>
-                        onUpdateRole(member.user.id, e.target.value)
-                      }
+                      value={currentDeptId}
+                      onChange={(e) => onUpdateDepartment(member.user.id, member.role, e.target.value)}
                     >
-                      <option value="staff">Staff</option>
-                      <option value="manager">Manager</option>
-                      <option value="company_admin">Admin</option>
+                      <option value="">None</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
                     </select>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs"
-                      onClick={() => onToggleStatus(member.user.id)}
-                    >
-                      {member.status === "active" ? "Deactivate" : "Activate"}
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusDot status={member.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <select
+                        className="rounded-md border px-2 py-1 text-xs bg-background"
+                        value={member.role}
+                        onChange={(e) => onUpdateRole(member.user.id, e.target.value)}
+                      >
+                        <option value="staff">Staff</option>
+                        <option value="manager">Manager</option>
+                        <option value="company_admin">Admin</option>
+                      </select>
+                      <Button variant="outline" size="sm" className="text-xs" onClick={() => onToggleStatus(member.user.id)}>
+                        {member.status === "active" ? "Deactivate" : "Activate"}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Pending invitations */}
       {pendingInvitations.length > 0 && (
         <div className="mt-8">
           <h3 className="text-lg font-semibold mb-3">Pending Invitations</h3>
@@ -351,15 +314,9 @@ export default function MembersPage() {
                 {pendingInvitations.map((invitation) => (
                   <tr key={invitation.id} className="border-b last:border-b-0">
                     <td className="px-4 py-3 font-medium">{invitation.email}</td>
-                    <td className="px-4 py-3">
-                      <RoleBadge role={invitation.role} />
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {invitation.invitedBy.name || invitation.invitedBy.email}
-                    </td>
-                    <td className="px-4 py-3 text-right text-muted-foreground">
-                      {new Date(invitation.expires).toLocaleDateString()}
-                    </td>
+                    <td className="px-4 py-3"><RoleBadge role={invitation.role} /></td>
+                    <td className="px-4 py-3 text-muted-foreground">{invitation.invitedBy.name || invitation.invitedBy.email}</td>
+                    <td className="px-4 py-3 text-right text-muted-foreground">{new Date(invitation.expires).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>

@@ -99,8 +99,9 @@ export class EligibilityService {
       // 2. Check availability
       let availCheck: EligibilityCheck = { eligible: true };
       if (task.scheduledStart && task.scheduledEnd) {
-        const startTime = task.scheduledStart.toISOString().slice(11, 16);
-        const endTime = task.scheduledEnd.toISOString().slice(11, 16);
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const startTime = `${pad(task.scheduledStart.getHours())}:${pad(task.scheduledStart.getMinutes())}`;
+        const endTime = `${pad(task.scheduledEnd.getHours())}:${pad(task.scheduledEnd.getMinutes())}`;
 
         if (hasAvailOverride) {
           availCheck = { eligible: true, reason: "Override applied" };
@@ -318,7 +319,7 @@ export class EligibilityService {
           const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
           if (dailyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `This ${taskDuration.toFixed(1)}h task + ${dailyHours.toFixed(1)}h already worked exceeds limit (rule "${rule.name}": max ${rule.maxHours}h/day)`;
+            reason = `${taskDuration.toFixed(1)}h task exceeds ${rule.maxHours}h/day limit`;
           }
           break;
         }
@@ -332,7 +333,7 @@ export class EligibilityService {
           const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
           if (weeklyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `This ${taskDuration.toFixed(1)}h task + ${weeklyHours.toFixed(1)}h this week exceeds limit (rule "${rule.name}": max ${rule.maxHours}h/week)`;
+            reason = `${taskDuration.toFixed(1)}h task exceeds ${rule.maxHours}h/week limit`;
           }
           break;
         }

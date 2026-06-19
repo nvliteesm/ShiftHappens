@@ -865,9 +865,10 @@ export default function TasksPage() {
                             )}
                             {elig && !elig.eligible && (
                               <span className="text-xs text-red-500">
-                                {elig.checks.availability?.reason ||
-                                 elig.checks.scheduling?.reason ||
-                                 elig.checks.hoursLimit?.reason ||
+                                {(!elig.checks.availability?.eligible && elig.checks.availability?.reason) ||
+                                 (!elig.checks.scheduling?.eligible && elig.checks.scheduling?.reason) ||
+                                 (!elig.checks.workRules?.eligible && elig.checks.workRules?.reason) ||
+                                 (!elig.checks.hoursLimit?.eligible && elig.checks.hoursLimit?.reason) ||
                                  "Ineligible"}
                               </span>
                             )}

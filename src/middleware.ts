@@ -34,6 +34,7 @@ const MODERATE_PATTERNS = [
   "/ai-recommendations",
   "/tasks/parse",
   "/api/platform",
+  "/auto-schedule",
 ];
 
 const TIER_LIMITS = {

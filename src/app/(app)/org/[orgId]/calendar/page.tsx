@@ -403,11 +403,15 @@ export default function CalendarPage() {
                   ) : (
                     <p className="text-muted-foreground">Off today</p>
                   )}
-                  {staff.assignedTasks.length > 0 && (
+                  {staff.assignedTasks.length > 0 ? (
                     <p className="text-muted-foreground mt-0.5">
                       Assigned: {staff.assignedTasks.join(", ")}
                     </p>
-                  )}
+                  ) : staff.isAvailable ? (
+                    <p className="text-blue-600 dark:text-blue-400 mt-0.5">
+                      Available — unassigned
+                    </p>
+                  ) : null}
                 </div>
               ))
             )}

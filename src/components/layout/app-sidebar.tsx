@@ -76,6 +76,10 @@ export function AppSidebar({ user, orgId, role }: AppSidebarProps) {
         label: "Work Rules",
       });
       links.push({
+        href: `/org/${orgId}/auto-schedule`,
+        label: "Auto-Schedule",
+      });
+      links.push({
         href: `/org/${orgId}/audit-log`,
         label: "Audit Log",
       });

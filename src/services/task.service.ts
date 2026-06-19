@@ -4,18 +4,15 @@
  * Business logic for task management including:
  * - Task CRUD with schedule validation
  * - Staff assignment with headcount and conflict checks
+ * - Smart-swap: automatic replacement suggestions on cancellation
  * - Department and staff task views
  * - Notification triggers on assignment
- *
- * Enforces rules:
- * - End time must be after start time
- * - Cannot exceed required headcount
- * - Scheduling conflict detection for staff assignments
  */
 import { TaskRepository } from "@/repositories/task.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { SettingsRepository } from "@/repositories/settings.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { EligibilityService } from "@/services/eligibility.service";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
@@ -27,11 +24,8 @@ export class TaskService {
   private settingsRepo = new SettingsRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
+  private eligibilityService = new EligibilityService();
 
-  /**
-   * Creates a new task in an organization.
-   * Validates that end time is after start time if both are provided.
-   */
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     if ((input.scheduledStart && !input.scheduledEnd) || (!input.scheduledStart && input.scheduledEnd)) {
       throw new Error("Must provide both start and end time, or neither");
@@ -71,7 +65,6 @@ export class TaskService {
     return task;
   }
 
-  /** Lists tasks for an organization with optional filters */
   async getByOrganization(
     organizationId: string,
     filters?: { status?: string; departmentId?: string; priority?: string }
@@ -79,12 +72,10 @@ export class TaskService {
     return this.taskRepo.findByOrganizationId(organizationId, filters);
   }
 
-  /** Gets a single task by ID */
   async getById(taskId: string) {
     return this.taskRepo.findById(taskId);
   }
 
-  /** Updates a task's fields */
   async update(taskId: string, orgId: string, input: UpdateTaskInput) {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
@@ -128,7 +119,6 @@ export class TaskService {
     return updated;
   }
 
-  /** Deletes a task */
   async delete(taskId: string, orgId: string) {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
@@ -211,7 +201,6 @@ export class TaskService {
       details: { membershipIds, status: assignmentStatus },
     });
 
-    // Notify each assigned staff member (fire-and-forget)
     for (const membId of membershipIds) {
       const membership = await this.membershipRepo.findById(membId);
       if (membership) {
@@ -229,7 +218,12 @@ export class TaskService {
     return assignments;
   }
 
-  /** Cancels a task assignment — admin/manager action */
+  /**
+   * Cancels a task assignment — admin/manager action.
+   * After cancellation, checks if the task is now understaffed.
+   * If understaffed, runs smart-swap: finds eligible replacements
+   * and notifies the admin with the top recommendation.
+   */
   async cancelAssignment(assignmentId: string, userId?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
     if (!assignment) throw new Error("Assignment not found");
@@ -248,20 +242,91 @@ export class TaskService {
       entityId: assignmentId,
     });
 
+    // Smart-swap: check if task is now understaffed and suggest replacement
+    void this.suggestReplacement(
+      assignment.task.id,
+      assignment.task.organizationId,
+      assignment.task.title,
+      assignment.task.requiredHeadcount,
+      assignment.membership?.user?.name || "A staff member",
+      userId
+    );
+
     return result;
   }
 
-  /** Gets tasks for a specific department (manager view) */
+  /**
+   * Smart-swap: Finds eligible replacement staff for an understaffed task
+   * and notifies the admin with the top recommendation.
+   * Fire-and-forget — never blocks or fails the cancellation.
+   */
+  private async suggestReplacement(
+    taskId: string,
+    organizationId: string,
+    taskTitle: string,
+    requiredHeadcount: number,
+    cancelledStaffName: string,
+    adminUserId?: string
+  ) {
+    try {
+      // Check if the task is now understaffed
+      const activeCount = await this.assignmentRepo.countActiveByTaskId(taskId);
+      if (activeCount >= requiredHeadcount) return;
+
+      const needed = requiredHeadcount - activeCount;
+
+      // Run eligibility to find available replacements
+      const eligibility = await this.eligibilityService.checkEligibilityForTask(
+        taskId,
+        organizationId
+      );
+
+      const eligibleStaff = eligibility
+        .filter((e) => e.eligible)
+        .map((e) => e.memberName);
+
+      if (eligibleStaff.length === 0) {
+        // Notify admin that no replacements are available
+        if (adminUserId) {
+          void this.notificationService.notify(
+            adminUserId,
+            NOTIFICATION_TYPES.TASK_ASSIGNED,
+            "Staff unassigned — no replacements",
+            `${cancelledStaffName} was removed from "${taskTitle}". No eligible staff available to fill the gap.`,
+            "task",
+            taskId
+          );
+        }
+        return;
+      }
+
+      // Notify admin with top replacement suggestions
+      const topSuggestions = eligibleStaff.slice(0, 3).join(", ");
+      const message = `${cancelledStaffName} was removed from "${taskTitle}" (needs ${needed} more). Recommended: ${topSuggestions}`;
+
+      if (adminUserId) {
+        void this.notificationService.notify(
+          adminUserId,
+          NOTIFICATION_TYPES.TASK_ASSIGNED,
+          "Smart swap — replacement suggested",
+          message,
+          "task",
+          taskId
+        );
+      }
+    } catch (error) {
+      console.error("[Smart-Swap Error]", error);
+    }
+  }
+
   async getTasksByDepartment(departmentId: string) {
     return this.taskRepo.findByDepartmentId(departmentId);
   }
 
-  /** Gets task assignments for a specific staff member */
   async getStaffTasks(membershipId: string, status?: string) {
     return this.assignmentRepo.findByMembershipId(membershipId, status);
   }
 
-  /** Gets task counts grouped by status for the dashboard */
   async getTaskCounts(organizationId: string) {
     const tasks = await this.taskRepo.findByOrganizationId(organizationId);
 

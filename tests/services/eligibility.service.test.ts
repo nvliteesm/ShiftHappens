@@ -128,8 +128,8 @@ describe("EligibilityService", () => {
         title: "Monday task",
         organizationId: orgId,
         createdById: adminUserId,
-        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
-        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
       });
 
       const results = await eligibilityService.checkEligibilityForTask(

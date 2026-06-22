@@ -10,16 +10,22 @@
 import { RoleRepository } from "@/repositories/role.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateRoleInput, UpdateRoleInput } from "@/lib/validations";
+import { SubscriptionService } from "@/services/subscription.service";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class RoleService {
   private roleRepo = new RoleRepository();
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
 
   /**
    * Creates a new custom role in an organization.
    * Checks for duplicate names before creating.
    */
   async create(input: CreateRoleInput, organizationId: string, userId?: string) {
+    await this.subscriptionService.enforceFeatureAccess(organizationId, 'custom_roles');
+    await this.subscriptionService.enforceResourceLimit(organizationId, 'custom_roles');
+
     const nameExists = await this.roleRepo.nameExistsInOrg(
       input.name,
       organizationId

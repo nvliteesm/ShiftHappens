@@ -4,6 +4,8 @@
  * Company Admin can view all org members in a table,
  * invite new users, update roles, assign departments,
  * and activate/deactivate members.
+ * Self-demotion protection: current user cannot change
+ * their own role or deactivate themselves.
  */
 "use client";
 
@@ -85,12 +87,24 @@ export default function MembersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMembers();
     fetchDepartments();
     fetchInvitations();
+    fetchCurrentUser();
   }, [orgId]);
+
+  async function fetchCurrentUser() {
+    try {
+      const res = await fetch("/api/profile");
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUserId(data.id);
+      }
+    } catch { /* non-critical */ }
+  }
 
   async function fetchMembers() {
     try {
@@ -250,11 +264,19 @@ export default function MembersPage() {
           <tbody>
             {members.map((member) => {
               const currentDeptId = member.departmentMemberships[0]?.department.id || "";
+              const isSelf = member.user.id === currentUserId;
               return (
                 <tr key={member.id} className={`border-b last:border-b-0 transition-colors hover:bg-muted/20 ${member.status !== "active" ? "opacity-50" : ""}`}>
                   <td className="px-4 py-3">
-                    <p className="font-medium">{member.user.name || "Unnamed"}</p>
-                    <p className="text-xs text-muted-foreground">{member.user.email}</p>
+                    <div className="flex items-center gap-2">
+                      <div>
+                        <p className="font-medium">{member.user.name || "Unnamed"}</p>
+                        <p className="text-xs text-muted-foreground">{member.user.email}</p>
+                      </div>
+                      {isSelf && (
+                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">you</span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <RoleBadge role={member.role} />
@@ -280,12 +302,21 @@ export default function MembersPage() {
                         className="rounded-md border px-2 py-1 text-xs bg-background"
                         value={member.role}
                         onChange={(e) => onUpdateRole(member.user.id, e.target.value)}
+                        disabled={isSelf}
+                        title={isSelf ? "Cannot change your own role" : undefined}
                       >
                         <option value="staff">Staff</option>
                         <option value="manager">Manager</option>
                         <option value="company_admin">Admin</option>
                       </select>
-                      <Button variant="outline" size="sm" className="text-xs" onClick={() => onToggleStatus(member.user.id)}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => onToggleStatus(member.user.id)}
+                        disabled={isSelf}
+                        title={isSelf ? "Cannot deactivate yourself" : undefined}
+                      >
                         {member.status === "active" ? "Deactivate" : "Activate"}
                       </Button>
                     </div>

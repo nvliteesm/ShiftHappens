@@ -12,6 +12,7 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { createWorkRuleSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const workRuleService = new WorkRuleService();
 const membershipRepo = new MembershipRepository();
@@ -77,6 +78,10 @@ export async function POST(
     const rule = await workRuleService.create(parsed.data, orgId, user.id);
     return NextResponse.json(rule, { status: 201 });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
     const message = error instanceof Error ? error.message : "Internal server error";
 
     if (message.includes("already exists")) {

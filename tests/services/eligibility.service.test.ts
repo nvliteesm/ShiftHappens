@@ -4,10 +4,12 @@
  * Verifies the four-dimensional eligibility engine:
  * 1. Hours limit (24h rolling window)
  * 2. Availability (weekly schedule + overrides)
+ *    - Casual staff: availability is a hard constraint
+ *    - Full-time staff: availability check skipped (always available)
  * 3. Scheduling conflicts (overlapping assignments)
  * 4. Work rules (break_interval, max_hours_daily, max_hours_weekly)
  *
- * Also covers eligibility overrides that bypass specific rules.
+ * Also covers eligibility overrides and employment type behavior.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { EligibilityService } from "@/services/eligibility.service";
@@ -553,6 +555,192 @@ describe("EligibilityService", () => {
         (r) => r.membershipId === staffMembershipId
       );
       expect(staffResult!.eligible).toBe(false);
+    });
+  });
+
+  describe("employment type", () => {
+    it("full-time staff is eligible without any availability set", async () => {
+      await prisma.membership.update({
+        where: { id: staffMembershipId },
+        data: { employmentType: "full_time" },
+      });
+
+      const task = await taskRepo.create({
+        title: "Scheduled task",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.checks.availability.eligible).toBe(true);
+      expect(staffResult!.employmentType).toBe("full_time");
+    });
+
+    it("casual staff is still ineligible without availability", async () => {
+      const task = await taskRepo.create({
+        title: "Scheduled task",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(false);
+      expect(staffResult!.checks.availability.eligible).toBe(false);
+      expect(staffResult!.employmentType).toBe("casual");
+    });
+
+    it("full-time staff is still blocked by scheduling conflicts", async () => {
+      await prisma.membership.update({
+        where: { id: staffMembershipId },
+        data: { employmentType: "full_time" },
+      });
+
+      const task1 = await taskRepo.create({
+        title: "Morning shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 9, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 12, 0, 0),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: task1.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "accepted",
+        },
+      });
+
+      const task2 = await taskRepo.create({
+        title: "Overlapping task",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 10, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 14, 0, 0),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task2.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(false);
+      expect(staffResult!.checks.scheduling.eligible).toBe(false);
+      expect(staffResult!.checks.availability.eligible).toBe(true);
+    });
+
+    it("full-time staff is still blocked by work rules", async () => {
+      await prisma.membership.update({
+        where: { id: staffMembershipId },
+        data: { employmentType: "full_time" },
+      });
+
+      await prisma.workRule.create({
+        data: {
+          organizationId: orgId,
+          name: "Daily limit",
+          type: "max_hours_daily",
+          maxHours: 8,
+          isActive: true,
+        },
+      });
+
+      // 9 hours already worked — local dates to match getHoursOnDate's setHours(0,0,0,0)
+      const pastTask = await taskRepo.create({
+        title: "Long shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 8, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 17, 0, 0),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: pastTask.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "completed",
+          clockInTime: new Date(2026, 5, 15, 8, 0, 0),
+          clockOutTime: new Date(2026, 5, 15, 17, 0, 0),
+        },
+      });
+
+      const newTask = await taskRepo.create({
+        title: "Evening shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date(2026, 5, 15, 18, 0, 0),
+        scheduledEnd: new Date(2026, 5, 15, 21, 0, 0),
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        newTask.id,
+        orgId
+      );
+
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.eligible).toBe(false);
+      expect(staffResult!.checks.workRules.eligible).toBe(false);
+      expect(staffResult!.checks.availability.eligible).toBe(true);
+    });
+
+    it("returns employmentType in results for all staff", async () => {
+      const ftUser = await userRepo.create({
+        name: "Full Timer",
+        email: "fulltime@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: ftUser.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+          employmentType: "full_time",
+        },
+      });
+
+      const task = await taskRepo.create({
+        title: "Simple task",
+        organizationId: orgId,
+        createdById: adminUserId,
+      });
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task.id,
+        orgId
+      );
+
+      const casualResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      const ftResult = results.find((r) => r.memberName === "Full Timer");
+
+      expect(casualResult!.employmentType).toBe("casual");
+      expect(ftResult!.employmentType).toBe("full_time");
     });
   });
 

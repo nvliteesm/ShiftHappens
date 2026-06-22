@@ -6,6 +6,8 @@
  *
  * 1. HOURS LIMIT — Has the member exceeded the company break rule threshold?
  * 2. AVAILABILITY — Is the member available at the task's scheduled time?
+ *    - Casual staff: weekly availability is a HARD CONSTRAINT
+ *    - Full-time staff: SKIP — always available during operating hours
  * 3. SCHEDULING — Does the member have conflicting assignments?
  * 4. WORK RULES — Does the assignment violate any custom work rules?
  *    Rules can target globally, by department, or by custom role.
@@ -31,6 +33,7 @@ interface EligibilityCheck {
 interface StaffEligibility {
   membershipId: string;
   memberName: string;
+  employmentType: string;
   eligible: boolean;
   checks: {
     hoursLimit: EligibilityCheck;
@@ -76,6 +79,9 @@ export class EligibilityService {
     const results: StaffEligibility[] = [];
 
     for (const member of eligibleMembers) {
+      const memberEmploymentType =
+        (member as Record<string, unknown>).employmentType as string || "casual";
+
       // Check for existing overrides
       const overrides: string[] = [];
       const hasHoursOverride = await this.overrideRepo.hasOverride(
@@ -97,8 +103,14 @@ export class EligibilityService {
         : await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked);
 
       // 2. Check availability
+      //    Casual: weekly availability is a hard constraint — fail if not available
+      //    Full-time: always available during operating hours — skip check
       let availCheck: EligibilityCheck = { eligible: true };
-      if (task.scheduledStart && task.scheduledEnd) {
+      if (
+        memberEmploymentType === "casual" &&
+        task.scheduledStart &&
+        task.scheduledEnd
+      ) {
         const pad = (n: number) => String(n).padStart(2, "0");
         const startTime = `${pad(task.scheduledStart.getHours())}:${pad(task.scheduledStart.getMinutes())}`;
         const endTime = `${pad(task.scheduledEnd.getHours())}:${pad(task.scheduledEnd.getMinutes())}`;
@@ -149,6 +161,7 @@ export class EligibilityService {
         membershipId: member.id,
         memberName: (member as { user: { name: string | null; email: string } }).user.name ||
           (member as { user: { name: string | null; email: string } }).user.email,
+        employmentType: memberEmploymentType,
         eligible,
         checks: {
           hoursLimit: hoursCheck,

@@ -1,24 +1,30 @@
 /**
  * Department Service (Control Layer)
- * 
+ *
  * Business logic for department management within an organization.
  * Enforces rules:
  * - No duplicate department names within the same org
  * - Cannot delete a department that has assigned members
+ * - Subscription tier limits on department count
  */
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
+import { SubscriptionService } from "@/services/subscription.service";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import type { CreateDepartmentInput, UpdateDepartmentInput } from "@/lib/validations";
 
 export class DepartmentService {
   private deptRepo = new DepartmentRepository();
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
 
   /**
    * Creates a new department in an organization.
-   * Checks for duplicate names before creating.
+   * Checks subscription limit, then duplicate names before creating.
    */
   async create(input: CreateDepartmentInput, organizationId: string, userId?: string) {
+    await this.subscriptionService.enforceResourceLimit(organizationId, 'departments');
+
     const nameExists = await this.deptRepo.nameExistsInOrg(
       input.name,
       organizationId

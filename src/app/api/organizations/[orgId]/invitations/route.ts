@@ -2,7 +2,7 @@
  * Invitations API Endpoint (Boundary Layer)
  * POST /api/organizations/[orgId]/invitations — Send invitation
  * GET /api/organizations/[orgId]/invitations — List invitations
- * 
+ *
  * Requires authentication and Company Admin role.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -11,6 +11,7 @@ import { inviteUserSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const userMgmtService = new UserManagementService();
 const membershipRepo = new MembershipRepository();
@@ -51,6 +52,9 @@ export async function POST(
     );
     return NextResponse.json(invitation, { status: 201 });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error) {
       if (
         error.message === "User is already a member of this organization" ||

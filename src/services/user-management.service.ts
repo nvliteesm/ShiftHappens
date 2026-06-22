@@ -18,6 +18,8 @@ import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { prisma } from "@/lib/prisma";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
+import { SubscriptionService } from "@/services/subscription.service";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class UserManagementService {
   private membershipRepo = new MembershipRepository();
@@ -25,6 +27,7 @@ export class UserManagementService {
   private userRepo = new UserRepository();
   private emailService = new EmailService();
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
 
   /** Lists all members of an organization with user details and departments */
   async getOrgMembers(organizationId: string) {
@@ -45,6 +48,8 @@ export class UserManagementService {
     organizationId: string,
     invitedById: string
   ) {
+    await this.subscriptionService.enforceResourceLimit(organizationId, 'members');
+
     // Check if the email already belongs to a member of this org
     const existingUser = await this.userRepo.findByEmail(input.email);
     if (existingUser) {

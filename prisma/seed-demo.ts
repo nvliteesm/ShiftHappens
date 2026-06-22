@@ -60,6 +60,13 @@ async function main() {
   }
 
   const orgId = org.id;
+  // Set subscription tier for demo (Pro enables all features except audit log)
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "pro" },
+  });
+  console.log("Set subscription tier to Pro");
+
   const hashedPassword = await bcrypt.hash("TestPass1!", 12);
 
   // ============================================================
@@ -183,6 +190,13 @@ async function main() {
     }
 
     staffMembershipIds.push(membership.id);
+
+    // Set employment type (full-time: scheduled by management, casual: availability-based)
+    const isFullTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
+    await prisma.membership.update({
+      where: { id: membership.id },
+      data: { employmentType: isFullTime ? "full_time" : "casual" },
+    });
 
     // Set weekly availability (varied per staff)
     const schedules: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[] = [];
@@ -587,14 +601,14 @@ async function main() {
   console.log("  Admin:    admin@oceangrill.com");
   console.log("  Manager:  sarah@oceangrill.com (Kitchen)");
   console.log("  Manager:  marcus@oceangrill.com (Bar)");
-  console.log("  Staff:    alex@oceangrill.com (Kitchen, Morning Mon-Fri)");
-  console.log("  Staff:    jamie@oceangrill.com (Kitchen, Evening Mon-Sat)");
-  console.log("  Staff:    taylor@oceangrill.com (Kitchen, Full day Mon-Fri)");
-  console.log("  Staff:    jordan@oceangrill.com (Bar, Part time Wed-Sun)");
-  console.log("  Staff:    casey@oceangrill.com (Front of House, Flexible all week)");
-  console.log("  Staff:    sam@oceangrill.com (Bar)");
-  console.log("  Staff:    riley@oceangrill.com (Front of House)");
-  console.log("  Staff:    morgan@oceangrill.com (Kitchen)");
+  console.log("  Staff:    alex@oceangrill.com (Kitchen, Full-time, Morning Mon-Fri)");
+  console.log("  Staff:    jamie@oceangrill.com (Kitchen, Full-time, Evening Mon-Sat)");
+  console.log("  Staff:    taylor@oceangrill.com (Kitchen, Full-time, Full day Mon-Fri)");
+  console.log("  Staff:    jordan@oceangrill.com (Bar, Casual, Part time Wed-Sun)");
+  console.log("  Staff:    casey@oceangrill.com (Front of House, Casual, Flexible all week)");
+  console.log("  Staff:    sam@oceangrill.com (Bar, Casual)");
+  console.log("  Staff:    riley@oceangrill.com (Front of House, Casual)");
+  console.log("  Staff:    morgan@oceangrill.com (Kitchen, Casual)");
 }
 
 main()

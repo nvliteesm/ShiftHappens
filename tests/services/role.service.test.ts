@@ -31,6 +31,12 @@ beforeEach(async () => {
   );
   orgId = org.id;
 
+  // Custom roles require Pro tier — set it explicitly
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { subscriptionTier: "pro" },
+  });
+
   const permissions = await prisma.permission.findMany({ take: 5 });
   permissionIds = permissions.map((p) => p.id);
 });
@@ -74,6 +80,49 @@ describe("RoleService", () => {
           orgId
         )
       ).rejects.toThrow("Role name already exists");
+    });
+
+    it("blocks custom role creation on free tier", async () => {
+      await prisma.organization.update({
+        where: { id: orgId },
+        data: { subscriptionTier: "free" },
+      });
+
+      await expect(
+        roleService.create(
+          {
+            name: "shift_lead",
+            displayLabel: "Shift Lead",
+            permissionIds: [permissionIds[0]],
+          },
+          orgId
+        )
+      ).rejects.toThrow("not available on the Free plan");
+    });
+
+    it("blocks custom role creation when pro tier limit reached", async () => {
+      // Pro tier allows 10 custom roles — create 10
+      for (let i = 0; i < 10; i++) {
+        await roleService.create(
+          {
+            name: `role_${i}`,
+            displayLabel: `Role ${i}`,
+            permissionIds: [permissionIds[0]],
+          },
+          orgId
+        );
+      }
+
+      await expect(
+        roleService.create(
+          {
+            name: "role_11",
+            displayLabel: "Role 11",
+            permissionIds: [permissionIds[0]],
+          },
+          orgId
+        )
+      ).rejects.toThrow("limit reached");
     });
   });
 

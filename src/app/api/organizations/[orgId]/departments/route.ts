@@ -11,6 +11,7 @@ import { DepartmentService } from "@/services/department.service";
 import { createDepartmentSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const deptService = new DepartmentService();
 const membershipRepo = new MembershipRepository();
@@ -46,6 +47,9 @@ export async function POST(
     const dept = await deptService.create(parsed.data, orgId, user.id);
     return NextResponse.json(dept, { status: 201 });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message === "Department name already exists") {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

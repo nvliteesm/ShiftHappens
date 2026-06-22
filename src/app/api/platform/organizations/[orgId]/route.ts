@@ -1,8 +1,12 @@
 /**
  * Platform Single Organization API Endpoint (Boundary Layer)
- * GET /api/platform/organizations/[orgId] — Get organization details
- * PATCH /api/platform/organizations/[orgId] — Toggle organization status
- * 
+ * GET   /api/platform/organizations/[orgId] — Get organization details
+ * PATCH /api/platform/organizations/[orgId] — Update organization
+ *
+ * PATCH accepts an optional JSON body:
+ *   { subscriptionTier: "free" | "pro" | "enterprise" } → updates tier
+ *   No body or empty body → toggles status (active ↔ suspended)
+ *
  * Requires platform admin authentication.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -43,11 +47,30 @@ export async function PATCH(
     }
 
     const { orgId } = await params;
+
+    // Parse body — empty body falls through to toggle status
+    const body = await request.json().catch(() => ({}));
+
+    // Tier update
+    if (body.subscriptionTier) {
+      const updated = await platformService.updateOrganizationTier(
+        orgId,
+        body.subscriptionTier
+      );
+      return NextResponse.json(updated);
+    }
+
+    // Default: toggle status (backward compatible)
     const updated = await platformService.toggleOrganizationStatus(orgId);
     return NextResponse.json(updated);
   } catch (error) {
-    if (error instanceof Error && error.message === "Organization not found") {
-      return NextResponse.json({ error: error.message }, { status: 404 });
+    if (error instanceof Error) {
+      if (error.message === "Organization not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.startsWith("Invalid subscription tier")) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

@@ -11,6 +11,7 @@ import { TaskService } from "@/services/task.service";
 import { createTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -45,6 +46,9 @@ export async function POST(
     const task = await taskService.create(parsed.data, orgId, user.id);
     return NextResponse.json(task, { status: 201 });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message === "End time must be after start time") {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

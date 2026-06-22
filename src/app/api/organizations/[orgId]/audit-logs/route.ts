@@ -1,16 +1,20 @@
 /**
  * Audit Logs API Endpoint (Boundary Layer)
  * GET /api/organizations/[orgId]/audit-logs
- * 
+ *
  * Returns paginated audit logs with optional filters.
- * Company Admin only.
+ * Company Admin only. Requires Enterprise subscription tier.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { AuditLogService } from "@/services/audit-log.service";
+import { SubscriptionService } from "@/services/subscription.service";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
 const auditService = new AuditLogService();
+const subscriptionService = new SubscriptionService(new SubscriptionRepository());
 const membershipRepo = new MembershipRepository();
 
 export async function GET(
@@ -27,6 +31,9 @@ export async function GET(
     if (!membership || membership.role !== "company_admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    // Feature gate: audit log is Enterprise only
+    await subscriptionService.enforceFeatureAccess(orgId, "audit_log");
 
     const searchParams = request.nextUrl.searchParams;
     const filters = {
@@ -46,6 +53,9 @@ export async function GET(
     const result = await auditService.getLogs(orgId, filters, limit, offset);
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     console.error("[Audit Logs Error]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

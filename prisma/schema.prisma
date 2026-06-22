@@ -31,16 +31,17 @@ model User {
 }
 
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  industry    String?
-  description String?
-  logo        String?
-  address     String?
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  name                String
+  slug                String   @unique
+  industry            String?
+  description         String?
+  logo                String?
+  address             String?
+  status              String   @default("active")
+  subscriptionTier    String   @default("free")   // "free" | "pro" | "enterprise"
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   memberships      Membership[]
   departments      Department[]
@@ -53,14 +54,15 @@ model Organization {
 }
 
 model Membership {
-  id             String   @id @default(cuid())
-  userId         String
-  organizationId String
-  role           String   @default("staff")
-  status         String   @default("active")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  customRoleId   String?
+  id                String   @id @default(cuid())
+  userId            String
+  organizationId    String
+  role              String   @default("staff")
+  status            String   @default("active")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  customRoleId      String?
+  employmentType    String?  // "casual" | "full_time"
 
   user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

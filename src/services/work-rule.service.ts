@@ -20,16 +20,21 @@
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateWorkRuleInput, UpdateWorkRuleInput } from "@/lib/validations";
+import { SubscriptionService } from "@/services/subscription.service";
+import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class WorkRuleService {
   private workRuleRepo = new WorkRuleRepository();
   private auditService = new AuditLogService();
+  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
 
   /**
    * Creates a new work rule with type-specific field validation.
    * Enforces name uniqueness per organization.
    */
   async create(input: CreateWorkRuleInput, orgId: string, userId: string) {
+    await this.subscriptionService.enforceResourceLimit(orgId, 'work_rules');
+
     const nameExists = await this.workRuleRepo.existsByName(orgId, input.name);
     if (nameExists) {
       throw new Error("A work rule with this name already exists");

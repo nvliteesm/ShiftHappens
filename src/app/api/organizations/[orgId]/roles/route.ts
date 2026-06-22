@@ -10,6 +10,7 @@ import { RoleService } from "@/services/role.service";
 import { createRoleSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 
 const roleService = new RoleService();
 const membershipRepo = new MembershipRepository();
@@ -44,6 +45,9 @@ export async function POST(
     const role = await roleService.create(parsed.data, orgId, user.id);
     return NextResponse.json(role, { status: 201 });
   } catch (error) {
+    if (error instanceof SubscriptionLimitError || error instanceof FeatureNotAvailableError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     if (error instanceof Error && error.message === "Role name already exists") {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }

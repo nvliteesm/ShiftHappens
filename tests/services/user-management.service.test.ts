@@ -1,7 +1,8 @@
 /**
  * Tests for User Management Service (Control Layer)
  * Verifies user invitation, role updates, department assignments,
- * and activation/deactivation within an organization.
+ * custom role assignment guards, and activation/deactivation
+ * within an organization.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { UserManagementService } from "@/services/user-management.service";
@@ -202,6 +203,230 @@ describe("UserManagementService", () => {
         { role: "manager" }
       );
       expect(updated.role).toBe("manager");
+    });
+
+    it("auto-clears custom role when promoting to company_admin", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      const membership = await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+
+      // Create and assign a custom role
+      const customRole = await prisma.role.create({
+        data: {
+          name: "shift_lead",
+          displayLabel: "Shift Lead",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+      await prisma.membership.update({
+        where: { id: membership.id },
+        data: { customRoleId: customRole.id },
+      });
+
+      // Promote to company_admin — should clear custom role
+      await userMgmtService.updateMemberRole(user2.id, orgId, {
+        role: "company_admin",
+      });
+
+      const updated = await prisma.membership.findUnique({
+        where: { id: membership.id },
+      });
+      expect(updated!.role).toBe("company_admin");
+      expect(updated!.customRoleId).toBeNull();
+    });
+  });
+
+  describe("assignCustomRole", () => {
+    it("assigns a custom role to staff", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+
+      const customRole = await prisma.role.create({
+        data: {
+          name: "shift_lead",
+          displayLabel: "Shift Lead",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      const result = await userMgmtService.assignCustomRole(
+        user2.id,
+        orgId,
+        customRole.id
+      );
+      expect(result.customRoleId).toBe(customRole.id);
+    });
+
+    it("assigns a custom role to manager", async () => {
+      const user2 = await userRepo.create({
+        name: "Manager User",
+        email: "mgr@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "manager",
+          status: "active",
+        },
+      });
+
+      const customRole = await prisma.role.create({
+        data: {
+          name: "head_chef",
+          displayLabel: "Head Chef",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      const result = await userMgmtService.assignCustomRole(
+        user2.id,
+        orgId,
+        customRole.id
+      );
+      expect(result.customRoleId).toBe(customRole.id);
+    });
+
+    it("blocks custom role assignment for company_admin", async () => {
+      const customRole = await prisma.role.create({
+        data: {
+          name: "shift_lead",
+          displayLabel: "Shift Lead",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      await expect(
+        userMgmtService.assignCustomRole(adminUserId, orgId, customRole.id)
+      ).rejects.toThrow("Company Admins cannot be assigned custom roles");
+    });
+
+    it("clears custom role when passing null", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+
+      const customRole = await prisma.role.create({
+        data: {
+          name: "shift_lead",
+          displayLabel: "Shift Lead",
+          organizationId: orgId,
+          isSystemRole: false,
+        },
+      });
+
+      await userMgmtService.assignCustomRole(user2.id, orgId, customRole.id);
+      const cleared = await userMgmtService.assignCustomRole(user2.id, orgId, null);
+      expect(cleared.customRoleId).toBeNull();
+    });
+
+    it("blocks assignment of system roles", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+
+      const systemRole = await prisma.role.create({
+        data: {
+          name: "company_admin",
+          displayLabel: "Company Admin",
+          organizationId: orgId,
+          isSystemRole: true,
+        },
+      });
+
+      await expect(
+        userMgmtService.assignCustomRole(user2.id, orgId, systemRole.id)
+      ).rejects.toThrow("Cannot assign system roles as custom roles");
+    });
+
+    it("blocks assignment of role from different org", async () => {
+      const user2 = await userRepo.create({
+        name: "Staff User",
+        email: "staff@example.com",
+        hashedPassword: "hash",
+      });
+      await prisma.membership.create({
+        data: {
+          userId: user2.id,
+          organizationId: orgId,
+          role: "staff",
+          status: "active",
+        },
+      });
+
+      const otherUser = await userRepo.create({
+        name: "Other Admin",
+        email: "other@example.com",
+        hashedPassword: "hash",
+      });
+      const otherOrg = await orgRepo.create(
+        { name: "Other Org", slug: "other-org" },
+        otherUser.id
+      );
+      const otherRole = await prisma.role.create({
+        data: {
+          name: "other_role",
+          displayLabel: "Other Role",
+          organizationId: otherOrg.id,
+          isSystemRole: false,
+        },
+      });
+
+      await expect(
+        userMgmtService.assignCustomRole(user2.id, orgId, otherRole.id)
+      ).rejects.toThrow("Custom role not found");
+    });
+
+    it("throws if membership not found", async () => {
+      await expect(
+        userMgmtService.assignCustomRole("nonexistent", orgId, null)
+      ).rejects.toThrow("Membership not found");
     });
   });
 

@@ -1,10 +1,13 @@
 /**
  * Demo Data Seed Script
  *
- * Creates realistic demo data for testing:
- * - 1 Company Admin
+ * Creates realistic demo data for the Ocean Grill demo organization.
+ * Fully idempotent — safe to run repeatedly on any database state.
+ *
+ * Data created:
+ * - 1 Company Admin (admin@oceangrill.com)
  * - 2 Managers (with department assignments)
- * - 8 Staff members (with department assignments)
+ * - 8 Staff members (with department assignments + employment types)
  * - 3 Departments (with colors)
  * - 5 upcoming tasks (tomorrow)
  * - 15+ historical completed tasks (past 7 days)
@@ -13,6 +16,7 @@
  * - Availability schedules
  * - Certifications
  * - Company settings
+ * - 1 Platform Admin (platform@smarttask.com)
  *
  * Run with: npx tsx prisma/seed-demo.ts
  */
@@ -24,22 +28,30 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding demo data...");
 
-  let org = await prisma.organization.findFirst();
-  let adminUser = await prisma.user.findFirst();
+  const hashedPassword = await bcrypt.hash("TestPass1!", 12);
 
-  if (!org || !adminUser) {
-    console.log("Creating admin user and organization...");
-    const hashedPassword = await bcrypt.hash("TestPass1!", 12);
+  // ============================================================
+  // Admin user + Organization (upsert — always correct state)
+  // ============================================================
+  const adminUser = await prisma.user.upsert({
+    where: { email: "admin@oceangrill.com" },
+    update: {
+      name: "Darryn Wan",
+      hashedPassword,
+      emailVerified: new Date(),
+    },
+    create: {
+      name: "Darryn Wan",
+      email: "admin@oceangrill.com",
+      hashedPassword,
+      emailVerified: new Date(),
+    },
+  });
 
-    adminUser = await prisma.user.create({
-      data: {
-        name: "Darryn Wan",
-        email: "admin@oceangrill.com",
-        hashedPassword,
-        emailVerified: new Date(),
-      },
-    });
-
+  let org = await prisma.organization.findUnique({
+    where: { slug: "ocean-grill" },
+  });
+  if (!org) {
     org = await prisma.organization.create({
       data: {
         name: "Ocean Grill",
@@ -48,26 +60,33 @@ async function main() {
         description: "A beachside restaurant and bar",
       },
     });
-
-    await prisma.membership.create({
-      data: {
-        userId: adminUser.id,
-        organizationId: org.id,
-        role: "company_admin",
-        status: "active",
-      },
-    });
   }
 
+  // Ensure admin membership exists and is correct
+  const adminMembership = await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: adminUser.id,
+        organizationId: org.id,
+      },
+    },
+    update: { role: "company_admin", status: "active" },
+    create: {
+      userId: adminUser.id,
+      organizationId: org.id,
+      role: "company_admin",
+      status: "active",
+    },
+  });
+
   const orgId = org.id;
+
   // Set subscription tier for demo (Pro enables all features except audit log)
   await prisma.organization.update({
     where: { id: orgId },
     data: { subscriptionTier: "pro" },
   });
-  console.log("Set subscription tier to Pro");
-
-  const hashedPassword = await bcrypt.hash("TestPass1!", 12);
+  console.log("Admin user, organization, and Pro tier ready");
 
   // ============================================================
   // Departments
@@ -108,31 +127,29 @@ async function main() {
   ];
 
   for (const mgr of managers) {
-    let user = await prisma.user.findUnique({ where: { email: mgr.email } });
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          name: mgr.name,
-          email: mgr.email,
-          hashedPassword,
-          emailVerified: new Date(),
-        },
-      });
-    }
-
-    let membership = await prisma.membership.findUnique({
-      where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
+    const user = await prisma.user.upsert({
+      where: { email: mgr.email },
+      update: { name: mgr.name, hashedPassword, emailVerified: new Date() },
+      create: {
+        name: mgr.name,
+        email: mgr.email,
+        hashedPassword,
+        emailVerified: new Date(),
+      },
     });
-    if (!membership) {
-      membership = await prisma.membership.create({
-        data: {
-          userId: user.id,
-          organizationId: orgId,
-          role: "manager",
-          status: "active",
-        },
-      });
-    }
+
+    const membership = await prisma.membership.upsert({
+      where: {
+        userId_organizationId: { userId: user.id, organizationId: orgId },
+      },
+      update: { role: "manager", status: "active" },
+      create: {
+        userId: user.id,
+        organizationId: orgId,
+        role: "manager",
+        status: "active",
+      },
+    });
 
     const dept = departments.find((d) => d.name === mgr.dept);
     if (dept) {
@@ -163,40 +180,38 @@ async function main() {
   const staffMembershipIds: string[] = [];
 
   for (const staff of staffMembers) {
-    let user = await prisma.user.findUnique({ where: { email: staff.email } });
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          name: staff.name,
-          email: staff.email,
-          hashedPassword,
-          emailVerified: new Date(),
-        },
-      });
-    }
-
-    let membership = await prisma.membership.findUnique({
-      where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
+    const user = await prisma.user.upsert({
+      where: { email: staff.email },
+      update: { name: staff.name, hashedPassword, emailVerified: new Date() },
+      create: {
+        name: staff.name,
+        email: staff.email,
+        hashedPassword,
+        emailVerified: new Date(),
+      },
     });
-    if (!membership) {
-      membership = await prisma.membership.create({
-        data: {
-          userId: user.id,
-          organizationId: orgId,
-          role: "staff",
-          status: "active",
-        },
-      });
-    }
+
+    const isFullTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
+
+    const membership = await prisma.membership.upsert({
+      where: {
+        userId_organizationId: { userId: user.id, organizationId: orgId },
+      },
+      update: {
+        role: "staff",
+        status: "active",
+        employmentType: isFullTime ? "full_time" : "casual",
+      },
+      create: {
+        userId: user.id,
+        organizationId: orgId,
+        role: "staff",
+        status: "active",
+        employmentType: isFullTime ? "full_time" : "casual",
+      },
+    });
 
     staffMembershipIds.push(membership.id);
-
-    // Set employment type (full-time: scheduled by management, casual: availability-based)
-    const isFullTime = ["Alex Rivera", "Jamie Park", "Taylor Smith"].includes(staff.name);
-    await prisma.membership.update({
-      where: { id: membership.id },
-      data: { employmentType: isFullTime ? "full_time" : "casual" },
-    });
 
     // Set weekly availability (varied per staff)
     const schedules: { dayOfWeek: number; startTime: string; endTime: string; isAvailable: boolean }[] = [];
@@ -272,31 +287,29 @@ async function main() {
   ];
 
   for (const staff of extraStaff) {
-    let user = await prisma.user.findUnique({ where: { email: staff.email } });
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          name: staff.name,
-          email: staff.email,
-          hashedPassword,
-          emailVerified: new Date(),
-        },
-      });
-    }
-
-    let membership = await prisma.membership.findUnique({
-      where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
+    const user = await prisma.user.upsert({
+      where: { email: staff.email },
+      update: { name: staff.name, hashedPassword, emailVerified: new Date() },
+      create: {
+        name: staff.name,
+        email: staff.email,
+        hashedPassword,
+        emailVerified: new Date(),
+      },
     });
-    if (!membership) {
-      membership = await prisma.membership.create({
-        data: {
-          userId: user.id,
-          organizationId: orgId,
-          role: "staff",
-          status: "active",
-        },
-      });
-    }
+
+    const membership = await prisma.membership.upsert({
+      where: {
+        userId_organizationId: { userId: user.id, organizationId: orgId },
+      },
+      update: { role: "staff", status: "active" },
+      create: {
+        userId: user.id,
+        organizationId: orgId,
+        role: "staff",
+        status: "active",
+      },
+    });
 
     const dept = departments.find((d) => d.name === staff.dept);
     if (dept) {
@@ -339,7 +352,7 @@ async function main() {
           issuedDate: new Date(cert.issued),
           expiryDate: cert.expiry ? new Date(cert.expiry) : null,
           status: "verified",
-          verifiedById: adminUser!.id,
+          verifiedById: adminUser.id,
           verifiedAt: new Date(),
         },
       });
@@ -427,7 +440,7 @@ async function main() {
         requiredHeadcount: t.requiredHeadcount,
         scheduledStart: start,
         scheduledEnd: end,
-        createdById: adminUser!.id,
+        createdById: adminUser.id,
       },
     });
   }
@@ -492,7 +505,7 @@ async function main() {
           scheduledStart: startTime,
           scheduledEnd: endTime,
           status: "completed",
-          createdById: adminUser!.id,
+          createdById: adminUser.id,
         },
       });
 
@@ -510,7 +523,7 @@ async function main() {
           data: {
             taskId: task.id,
             membershipId,
-            assignedById: adminUser!.id,
+            assignedById: adminUser.id,
             status: "completed",
             clockInTime: clockIn,
             clockOutTime: clockOut,
@@ -555,7 +568,7 @@ async function main() {
       data: {
         taskId,
         membershipId,
-        assignedById: adminUser!.id,
+        assignedById: adminUser.id,
         status: "rejected",
         rejectionReason: rej.reason,
         rejectionNotes: rej.notes,
@@ -568,27 +581,23 @@ async function main() {
   // ============================================================
   // Platform Admin
   // ============================================================
-  let platformAdmin = await prisma.user.findUnique({
+  await prisma.user.upsert({
     where: { email: "platform@smarttask.com" },
+    update: {
+      name: "Platform Admin",
+      hashedPassword,
+      emailVerified: new Date(),
+      isPlatformAdmin: true,
+    },
+    create: {
+      name: "Platform Admin",
+      email: "platform@smarttask.com",
+      hashedPassword,
+      emailVerified: new Date(),
+      isPlatformAdmin: true,
+    },
   });
-  if (!platformAdmin) {
-    platformAdmin = await prisma.user.create({
-      data: {
-        name: "Platform Admin",
-        email: "platform@smarttask.com",
-        hashedPassword,
-        emailVerified: new Date(),
-        isPlatformAdmin: true,
-      },
-    });
-    console.log("Created platform admin account");
-  } else if (!platformAdmin.isPlatformAdmin) {
-    await prisma.user.update({
-      where: { id: platformAdmin.id },
-      data: { isPlatformAdmin: true },
-    });
-    console.log("Updated platform admin flag");
-  }
+  console.log("Platform admin ready");
 
   // ============================================================
   // Summary

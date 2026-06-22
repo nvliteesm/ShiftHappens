@@ -1,7 +1,8 @@
 /**
  * Company Settings Page (Boundary Layer)
  *
- * Company Admin can configure organization-wide settings:
+ * Displays subscription plan info (tier, usage, features)
+ * and allows Company Admin to configure organization settings:
  * - Task allocation mode (manual, suggested, auto)
  * - Task acceptance mode (auto-accept or require confirmation)
  * - Break rules (hours worked before break, break duration)
@@ -35,10 +36,46 @@ interface Settings {
   notificationPreferences: string | null;
 }
 
+interface ResourceUsage {
+  current: number;
+  limit: number | null;
+  percentage: number | null;
+}
+
+interface SubscriptionData {
+  tier: string;
+  displayName: string;
+  resources: Record<string, ResourceUsage>;
+  features: Record<string, boolean>;
+}
+
+const RESOURCE_LABELS: Record<string, string> = {
+  members: "Team members",
+  active_tasks: "Active tasks",
+  departments: "Departments",
+  work_rules: "Work rules",
+  custom_roles: "Custom roles",
+};
+
+const FEATURE_LABELS: Record<string, string> = {
+  custom_roles: "Custom roles (RBAC)",
+  pdf_export: "PDF report export",
+  mass_import: "Mass import (Excel)",
+  audit_log: "Audit log",
+  priority_support: "Priority support",
+};
+
+const TIER_BADGE_STYLES: Record<string, string> = {
+  free: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  pro: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+  enterprise: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+};
+
 export default function SettingsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
   const [breakHoursWorked, setBreakHoursWorked] = useState(6);
@@ -60,6 +97,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSettings();
+    fetchSubscription();
   }, [orgId]);
 
   async function fetchSettings() {
@@ -81,6 +119,18 @@ export default function SettingsPage() {
       }
     } catch {
       setMessage({ type: "error", text: "Failed to load settings" });
+    }
+  }
+
+  async function fetchSubscription() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/subscription`);
+      if (res.ok) {
+        const data = await res.json();
+        setSubscription(data);
+      }
+    } catch {
+      // Non-critical — subscription display is informational
     }
   }
 
@@ -129,6 +179,14 @@ export default function SettingsPage() {
     }
   }
 
+  /** Returns color class for usage percentage */
+  function usageColor(percentage: number | null): string {
+    if (percentage === null) return "bg-primary";
+    if (percentage >= 90) return "bg-red-500";
+    if (percentage >= 70) return "bg-amber-500";
+    return "bg-primary";
+  }
+
   /** Formats hour number to display string */
   function formatHour(h: number): string {
     if (h === 0 || h === 24) return "12 AM (midnight)";
@@ -140,9 +198,91 @@ export default function SettingsPage() {
   if (!settings) return <p>Loading...</p>;
 
   return (
-    <div className="max-w-2xl">
-      <h2 className="mb-6 text-2xl font-bold">Company Settings</h2>
+    <div className="max-w-2xl space-y-6">
+      <h2 className="text-2xl font-bold">Company Settings</h2>
 
+      {/* ─── Subscription Plan Section ─────────────────────────────── */}
+      {subscription && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Subscription Plan</CardTitle>
+                <CardDescription>
+                  Your organization&apos;s current plan and resource usage
+                </CardDescription>
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-sm font-medium ${
+                  TIER_BADGE_STYLES[subscription.tier] || TIER_BADGE_STYLES.free
+                }`}
+              >
+                {subscription.displayName}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Resource usage bars */}
+            <div>
+              <p className="text-sm font-medium mb-3">Resource Usage</p>
+              <div className="space-y-3">
+                {Object.entries(subscription.resources).map(([key, usage]) => (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="text-sm w-28 shrink-0">
+                      {RESOURCE_LABELS[key] || key}
+                    </span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${usageColor(usage.percentage)}`}
+                        style={{
+                          width: usage.percentage !== null
+                            ? `${Math.min(usage.percentage, 100)}%`
+                            : "0%",
+                        }}
+                      />
+                    </div>
+                    <span className="text-sm text-muted-foreground w-24 text-right tabular-nums">
+                      {usage.limit !== null
+                        ? `${usage.current} / ${usage.limit}`
+                        : `${usage.current} (no limit)`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Feature access */}
+            <div>
+              <p className="text-sm font-medium mb-3">Feature Access</p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(subscription.features).map(([key, available]) => (
+                  <div key={key} className="flex items-center gap-2 text-sm">
+                    <span className={available ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
+                      {available ? "✓" : "✗"}
+                    </span>
+                    <span className={available ? "" : "text-muted-foreground"}>
+                      {FEATURE_LABELS[key] || key}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {subscription.tier !== "enterprise" && (
+              <>
+                <Separator />
+                <p className="text-sm text-muted-foreground">
+                  Contact your platform administrator to upgrade your plan.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─── Settings Form ─────────────────────────────────────────── */}
       <form onSubmit={onSubmit}>
         <Card>
           <CardHeader>
@@ -242,7 +382,7 @@ export default function SettingsPage() {
             <p className="text-base font-medium">Operating Hours</p>
             <p className="text-sm text-muted-foreground">
               The daily operating window shown on the calendar. Tasks outside
-              these hours won't appear in the calendar grid.
+              these hours won&apos;t appear in the calendar grid.
             </p>
 
             <div className="grid grid-cols-2 gap-4">

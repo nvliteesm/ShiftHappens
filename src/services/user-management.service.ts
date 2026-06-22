@@ -5,6 +5,7 @@
  * - Listing organization members
  * - Inviting new users via email (with invitation email)
  * - Updating member roles and department assignments
+ * - Assigning custom roles (blocked for company_admin)
  * - Activating/deactivating members
  *
  * BCE: Sits between Boundary (API routes) and Entity (repositories).
@@ -16,10 +17,10 @@ import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
-import { prisma } from "@/lib/prisma";
-import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
 import { SubscriptionRepository } from "@/repositories/subscription.repository";
+import { prisma } from "@/lib/prisma";
+import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
 export class UserManagementService {
   private membershipRepo = new MembershipRepository();
@@ -36,12 +37,13 @@ export class UserManagementService {
 
   /**
    * Invites a user to an organization:
-   * 1. Check if user is already a member
-   * 2. Check for existing pending invitation
-   * 3. Generate secure invitation token
-   * 4. Create invitation record
-   * 5. Log audit event
-   * 6. Send invitation email (fire-and-forget)
+   * 1. Check subscription member limit
+   * 2. Check if user is already a member
+   * 3. Check for existing pending invitation
+   * 4. Generate secure invitation token
+   * 5. Create invitation record
+   * 6. Log audit event
+   * 7. Send invitation email (fire-and-forget)
    */
   async inviteUser(
     input: InviteUserInput,
@@ -138,6 +140,8 @@ export class UserManagementService {
   /**
    * Updates a member's role and optionally their department assignments.
    * Prevents the last company_admin from being demoted.
+   * Auto-clears custom role when promoting to company_admin
+   * (admins have full access — custom roles are redundant).
    */
   async updateMemberRole(
     userId: string,
@@ -175,6 +179,17 @@ export class UserManagementService {
       input.role
     );
 
+    // Auto-clear custom role when promoting to company_admin
+    if (input.role === "company_admin") {
+      const currentCustomRoleId = (membership as Record<string, unknown>).customRoleId as string | null;
+      if (currentCustomRoleId) {
+        await prisma.membership.update({
+          where: { id: membership.id },
+          data: { customRoleId: null },
+        });
+      }
+    }
+
     // Update department assignments if provided
     if (input.departmentIds) {
       await this.membershipRepo.assignDepartments(
@@ -193,6 +208,60 @@ export class UserManagementService {
     });
 
     return updated;
+  }
+
+  /**
+   * Assigns a custom role to a member.
+   * Company admins cannot have custom roles (they have full access).
+   * Pass null to clear the custom role.
+   */
+  async assignCustomRole(
+    userId: string,
+    organizationId: string,
+    customRoleId: string | null,
+    performedById?: string
+  ) {
+    const membership = await this.membershipRepo.findByUserAndOrg(
+      userId,
+      organizationId
+    );
+    if (!membership) {
+      throw new Error("Membership not found");
+    }
+
+    if (membership.role === "company_admin" && customRoleId !== null) {
+      throw new Error("Company Admins cannot be assigned custom roles");
+    }
+
+    // Validate custom role exists in the org if assigning (not clearing)
+    if (customRoleId) {
+      const role = await prisma.role.findUnique({
+        where: { id: customRoleId },
+        select: { id: true, organizationId: true, isSystemRole: true },
+      });
+      if (!role || role.organizationId !== organizationId) {
+        throw new Error("Custom role not found");
+      }
+      if (role.isSystemRole) {
+        throw new Error("Cannot assign system roles as custom roles");
+      }
+    }
+
+    await prisma.membership.update({
+      where: { id: membership.id },
+      data: { customRoleId },
+    });
+
+    await this.auditService.log({
+      organizationId,
+      userId: performedById,
+      action: ACTIONS.MEMBER_ROLE_CHANGED,
+      entityType: "member",
+      entityId: userId,
+      details: { customRoleId },
+    });
+
+    return { ...membership, customRoleId };
   }
 
   /**

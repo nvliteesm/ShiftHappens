@@ -1,19 +1,20 @@
 /**
  * App Layout (Boundary Layer)
- * 
+ *
  * Shared layout for all authenticated pages.
  * Validates session user still exists in database.
- * Fetches org and role for the role-aware sidebar.
+ * Fetches org, role, employment type, and custom role for the sidebar.
  * Redirects unauthenticated or invalid users to /login.
  * Shows suspension message inline if org is suspended.
  */
 import { redirect } from "next/navigation";
-import { auth, signOut } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { OrganizationService } from "@/services/organization.service";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserRepository } from "@/repositories/user.repository";
 import { OrgSuspendedBanner } from "@/components/layout/org-suspended-banner";
+import { prisma } from "@/lib/prisma";
 
 const orgService = new OrganizationService();
 const membershipRepo = new MembershipRepository();
@@ -39,7 +40,6 @@ export default async function AppLayout({
   // Validate the session user still exists in the database
   const dbUser = await userRepo.findById(session.user.id);
   if (!dbUser) {
-    await signOut({ redirect: false });
     redirect("/login");
   }
 
@@ -47,6 +47,8 @@ export default async function AppLayout({
   const orgs = await orgService.getUserOrganizations(session.user.id);
   let orgId: string | undefined;
   let role: string | undefined;
+  let employmentType: string | undefined;
+  let customRoleLabel: string | undefined;
   let orgSuspended = false;
 
   if (orgs.length > 0) {
@@ -60,6 +62,17 @@ export default async function AppLayout({
         orgId
       );
       role = membership?.role;
+      employmentType = (membership as Record<string, unknown>)?.employmentType as string | undefined;
+
+      // Fetch custom role display label if assigned
+      const customRoleId = (membership as Record<string, unknown>)?.customRoleId as string | undefined;
+      if (customRoleId) {
+        const customRole = await prisma.role.findUnique({
+          where: { id: customRoleId },
+          select: { displayLabel: true },
+        });
+        customRoleLabel = customRole?.displayLabel;
+      }
     }
   }
 
@@ -73,7 +86,13 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
-      <AppSidebar user={session.user} orgId={orgId} role={role} />
+      <AppSidebar
+        user={session.user}
+        orgId={orgId}
+        role={role}
+        employmentType={employmentType}
+        customRoleLabel={customRoleLabel}
+      />
       <main className="flex-1 p-6">{children}</main>
     </div>
   );

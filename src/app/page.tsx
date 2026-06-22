@@ -1,12 +1,13 @@
 /**
  * Root Page (Boundary Layer)
- * 
- * Entry point of the application. Redirects based on auth state:
- * - Authenticated users → /dashboard
- * - Unauthenticated users → /login
+ *
+ * Entry point of the application.
+ * - Authenticated users → redirect to /dashboard
+ * - Unauthenticated users → show the public landing page
  */
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import LandingPage from "@/components/landing/landing-page";
 
 export default async function Home() {
   const session = await auth();
@@ -15,5 +16,5 @@ export default async function Home() {
     redirect("/dashboard");
   }
 
-  redirect("/login");
+  return <LandingPage />;
 }

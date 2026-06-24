@@ -579,6 +579,25 @@ async function main() {
   console.log("Created 5 rejected assignments (Alex: 3, Jamie: 2)");
 
   // ============================================================
+  // Unaffiliated user (for onboarding demo)
+  // ============================================================
+  await prisma.user.upsert({
+    where: { email: "new@smarttask.com" },
+    update: {
+      name: "New User",
+      hashedPassword,
+      emailVerified: new Date(),
+    },
+    create: {
+      name: "New User",
+      email: "new@smarttask.com",
+      hashedPassword,
+      emailVerified: new Date(),
+    },
+  });
+  console.log("Created unaffiliated user for onboarding demo");
+
+  // ============================================================
   // Platform Admin
   // ============================================================
   await prisma.user.upsert({
@@ -618,6 +637,7 @@ async function main() {
   console.log("  Staff:    sam@oceangrill.com (Bar, Casual)");
   console.log("  Staff:    riley@oceangrill.com (Front of House, Casual)");
   console.log("  Staff:    morgan@oceangrill.com (Kitchen, Casual)");
+  console.log("  New user: new@smarttask.com (No org — lands on onboarding)");
 }
 
 main()

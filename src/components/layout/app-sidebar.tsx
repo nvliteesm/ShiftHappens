@@ -5,7 +5,7 @@
  * subscription-based feature gating, and user context display.
  *
  * Displays:
- * - Subscription tier badge (Free/Pro/Enterprise)
+ * - App title with org name and subscription tier badge
  * - Navigation links filtered by role and subscription
  * - User info with system role + employment type (row 1)
  *   and custom role if assigned (row 2)
@@ -27,6 +27,7 @@ interface AppSidebarProps {
     email: string;
   };
   orgId?: string;
+  orgName?: string;
   role?: string;
   employmentType?: string;
   customRoleLabel?: string;
@@ -35,6 +36,7 @@ interface AppSidebarProps {
 export function AppSidebar({
   user,
   orgId,
+  orgName,
   role,
   employmentType,
   customRoleLabel,
@@ -156,6 +158,9 @@ export function AppSidebar({
             </span>
           )}
         </div>
+        {orgName && (
+          <p className="text-sm text-muted-foreground mt-1">{orgName}</p>
+        )}
       </div>
       <nav className="flex-1 space-y-1">
         {links.map((link) => (

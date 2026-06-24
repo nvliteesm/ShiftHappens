@@ -46,6 +46,7 @@ export default async function AppLayout({
   // Get user's first organization and role for sidebar
   const orgs = await orgService.getUserOrganizations(session.user.id);
   let orgId: string | undefined;
+  let orgName: string | undefined;
   let role: string | undefined;
   let employmentType: string | undefined;
   let customRoleLabel: string | undefined;
@@ -53,6 +54,7 @@ export default async function AppLayout({
 
   if (orgs.length > 0) {
     orgId = orgs[0].id;
+    orgName = orgs[0].name;
 
     if (orgs[0].status !== "active") {
       orgSuspended = true;
@@ -89,6 +91,7 @@ export default async function AppLayout({
       <AppSidebar
         user={session.user}
         orgId={orgId}
+        orgName={orgName}
         role={role}
         employmentType={employmentType}
         customRoleLabel={customRoleLabel}

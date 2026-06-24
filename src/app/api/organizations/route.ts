@@ -2,10 +2,12 @@
  * Organizations API Endpoint (Boundary Layer)
  * POST /api/organizations — Create a new organization
  * GET /api/organizations — List user's organizations
- * 
+ *
  * Both endpoints require authentication.
  * Organization creation assigns the authenticated user as company_admin.
- * 
+ * Optionally applies an industry template (templateId) or
+ * AI-generated custom template (customTemplate) on creation.
+ *
  * Returns:
  * - 201: Organization created (POST)
  * - 200: List of organizations (GET)
@@ -36,7 +38,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Delegate to OrganizationService (Control layer)
-    const org = await orgService.create(parsed.data, user.id);
+    const org = await orgService.create(
+      parsed.data,
+      user.id,
+      body.templateId,
+      body.customTemplate
+    );
 
     return NextResponse.json(org, { status: 201 });
   } catch {

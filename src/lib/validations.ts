@@ -320,6 +320,24 @@ export const updateWorkRuleSchema = z.object({
 });
 
 // ============================================================
+// Phase 10: Mass Import
+// ============================================================
+
+/** Validates a single member row in a batch import */
+export const importMemberSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters").max(100),
+  email: z.string().email("Invalid email address"),
+  role: z.enum(["staff", "manager"]),
+  departmentName: z.string().max(100).nullable(),
+  employmentType: z.enum(["full_time", "casual"]),
+});
+
+/** Validates the full batch import request */
+export const batchImportSchema = z.object({
+  members: z.array(importMemberSchema).min(1, "At least one member required").max(200, "Maximum 200 members per import"),
+});
+
+// ============================================================
 // Type Exports — inferred from schemas for type-safe usage
 // ============================================================
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -348,3 +366,5 @@ export type VerifyCertificationInput = z.infer<typeof verifyCertificationSchema>
 export type CreateEligibilityOverrideInput = z.infer<typeof createEligibilityOverrideSchema>;
 export type CreateWorkRuleInput = z.infer<typeof createWorkRuleSchema>;
 export type UpdateWorkRuleInput = z.infer<typeof updateWorkRuleSchema>;
+export type ImportMemberInput = z.infer<typeof importMemberSchema>;
+export type BatchImportInput = z.infer<typeof batchImportSchema>;

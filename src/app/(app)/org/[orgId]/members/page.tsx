@@ -9,6 +9,7 @@
  */
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -202,9 +203,14 @@ export default function MembersPage() {
             {pendingInvitations.length > 0 && ` · ${pendingInvitations.length} pending`}
           </p>
         </div>
-        <Button onClick={() => setShowInvite(!showInvite)}>
-          {showInvite ? "Cancel" : "Invite User"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href={`/org/${orgId}/members/import`}>
+            <Button variant="outline">Import members</Button>
+          </Link>
+          <Button onClick={() => setShowInvite(!showInvite)}>
+            {showInvite ? "Cancel" : "Invite User"}
+          </Button>
+        </div>
       </div>
 
       {error && (

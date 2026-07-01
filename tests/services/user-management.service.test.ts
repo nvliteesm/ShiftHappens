@@ -487,4 +487,296 @@ describe("UserManagementService", () => {
       ).rejects.toThrow("Cannot deactivate the last active Company Admin");
     });
   });
+
+  describe("batchImportMembers", () => {
+    it("creates new users and memberships", async () => {
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "full_time",
+          },
+          {
+            name: "Liam Chen",
+            email: "liam@example.com",
+            role: "manager",
+            departmentName: null,
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(2);
+      expect(result.failed).toBe(0);
+      expect(result.errors).toHaveLength(0);
+
+      const members = await userMgmtService.getOrgMembers(orgId);
+      // 1 admin + 2 imported
+      expect(members).toHaveLength(3);
+    });
+
+    it("assigns departments by name", async () => {
+      await deptRepo.create({ name: "Kitchen", organizationId: orgId });
+
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: "Kitchen",
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
+
+      const members = await prisma.membership.findMany({
+        where: { organizationId: orgId, role: "staff" },
+        include: { departmentMemberships: true },
+      });
+      expect(members[0].departmentMemberships).toHaveLength(1);
+    });
+
+    it("matches department names case-insensitively", async () => {
+      await deptRepo.create({ name: "Front of House", organizationId: orgId });
+
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: "front of house",
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
+      expect(result.failed).toBe(0);
+    });
+
+    it("sets employment type on membership", async () => {
+      await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "full_time",
+          },
+        ],
+        adminUserId
+      );
+
+      const membership = await prisma.membership.findFirst({
+        where: { organizationId: orgId, role: "staff" },
+      });
+      expect(membership!.employmentType).toBe("full_time");
+    });
+
+    it("marks imported users' emails as verified", async () => {
+      await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      const user = await userRepo.findByEmail("emma@example.com");
+      expect(user!.emailVerified).not.toBeNull();
+    });
+
+    it("skips members who already exist in the org", async () => {
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Admin User",
+            email: "admin@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain("Already a member");
+    });
+
+    it("skips intra-batch duplicate emails", async () => {
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "casual",
+          },
+          {
+            name: "Emma W",
+            email: "emma@example.com",
+            role: "manager",
+            departmentName: null,
+            employmentType: "full_time",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain("Duplicate email within import");
+    });
+
+    it("fails on non-existent department", async () => {
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: "Nonexistent Dept",
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain("not found");
+    });
+
+    it("reuses existing user account if not yet a member", async () => {
+      // Create a user who exists but is not in this org
+      await userRepo.create({
+        name: "Existing User",
+        email: "existing@example.com",
+        hashedPassword: "hash",
+      });
+
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Existing User",
+            email: "existing@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "casual",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(1);
+      expect(result.failed).toBe(0);
+
+      // Should not have created a second user
+      const allUsers = await prisma.user.findMany({
+        where: { email: "existing@example.com" },
+      });
+      expect(allUsers).toHaveLength(1);
+    });
+
+    it("handles partial success — continues after individual failures", async () => {
+      await deptRepo.create({ name: "Kitchen", organizationId: orgId });
+
+      const result = await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Good Import",
+            email: "good@example.com",
+            role: "staff",
+            departmentName: "Kitchen",
+            employmentType: "casual",
+          },
+          {
+            name: "Bad Dept",
+            email: "baddept@example.com",
+            role: "staff",
+            departmentName: "Nonexistent",
+            employmentType: "casual",
+          },
+          {
+            name: "Also Good",
+            email: "alsogood@example.com",
+            role: "manager",
+            departmentName: null,
+            employmentType: "full_time",
+          },
+        ],
+        adminUserId
+      );
+
+      expect(result.created).toBe(2);
+      expect(result.failed).toBe(1);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain("baddept@example.com");
+    });
+
+    it("creates audit log entries for each imported member", async () => {
+      await userMgmtService.batchImportMembers(
+        orgId,
+        [
+          {
+            name: "Emma Wilson",
+            email: "emma@example.com",
+            role: "staff",
+            departmentName: null,
+            employmentType: "casual",
+          },
+          {
+            name: "Liam Chen",
+            email: "liam@example.com",
+            role: "manager",
+            departmentName: null,
+            employmentType: "full_time",
+          },
+        ],
+        adminUserId
+      );
+
+      // Wait for fire-and-forget audit logs
+      await new Promise((r) => setTimeout(r, 200));
+
+      const logs = await prisma.auditLog.findMany({
+        where: {
+          organizationId: orgId,
+          action: "member.invited",
+          details: { path: ["method"], equals: "batch_import" },
+        },
+      });
+
+      expect(logs).toHaveLength(2);
+    });
+  });
 });

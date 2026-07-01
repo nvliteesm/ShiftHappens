@@ -12,6 +12,7 @@
  * Only Company Admin can perform these operations (enforced at Boundary).
  */
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { InvitationRepository } from "@/repositories/invitation.repository";
 import { UserRepository } from "@/repositories/user.repository";
@@ -304,5 +305,147 @@ export class UserManagementService {
     });
 
     return updated;
+  }
+
+  /**
+   * Batch imports members from a spreadsheet upload.
+   * For each row:
+   * 1. Find or create user (new users get a random password — they use "Forgot Password" to set their own)
+   * 2. Create membership with role and employment type
+   * 3. Assign department by name lookup
+   * 4. Audit log each creation
+   *
+   * Partial-success pattern — one failed row does not stop the batch.
+   * Returns created count, failed count, and per-row error messages.
+   */
+  async batchImportMembers(
+    organizationId: string,
+    members: {
+      name: string;
+      email: string;
+      role: string;
+      departmentName: string | null;
+      employmentType: string;
+    }[],
+    performedById: string
+  ): Promise<{ created: number; failed: number; errors: string[] }> {
+    // Pre-fetch org departments for name → ID lookup
+    const departments = await prisma.department.findMany({
+      where: { organizationId },
+      select: { id: true, name: true },
+    });
+    const deptMap = new Map(
+      departments.map((d) => [d.name.toLowerCase(), d.id])
+    );
+
+    // Pre-fetch existing members to detect duplicates
+    const existingMembers = await this.membershipRepo.findByOrgId(organizationId);
+    const existingEmails = new Set(
+      existingMembers.map((m) => m.user.email.toLowerCase())
+    );
+
+    // Track emails within batch to detect intra-batch duplicates
+    const seenEmails = new Set<string>();
+
+    let created = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const member of members) {
+      const email = member.email.toLowerCase().trim();
+
+      try {
+        // Check intra-batch duplicate
+        if (seenEmails.has(email)) {
+          errors.push(`Row ${email}: Duplicate email within import`);
+          failed++;
+          continue;
+        }
+        seenEmails.add(email);
+
+        // Check existing membership
+        if (existingEmails.has(email)) {
+          errors.push(`Row ${email}: Already a member`);
+          failed++;
+          continue;
+        }
+
+        // Resolve department
+        let departmentId: string | null = null;
+        if (member.departmentName) {
+          departmentId = deptMap.get(member.departmentName.toLowerCase()) || null;
+          if (!departmentId) {
+            errors.push(
+              `Row ${email}: Department "${member.departmentName}" not found`
+            );
+            failed++;
+            continue;
+          }
+        }
+
+        // Find or create user
+        let user = await this.userRepo.findByEmail(email);
+        if (!user) {
+          const randomPassword = crypto.randomBytes(32).toString("hex");
+          const hashedPassword = await bcrypt.hash(randomPassword, 12);
+          user = await this.userRepo.create({
+            name: member.name.trim(),
+            email,
+            hashedPassword,
+          });
+          // Mark email as verified — admin is adding them directly
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
+          });
+        }
+
+        // Create membership
+        const membership = await prisma.membership.create({
+          data: {
+            userId: user.id,
+            organizationId,
+            role: member.role,
+            employmentType: member.employmentType,
+            status: "active",
+          },
+        });
+
+        // Assign department
+        if (departmentId) {
+          await prisma.departmentMembership.create({
+            data: {
+              membershipId: membership.id,
+              departmentId,
+            },
+          });
+        }
+
+        // Audit log (fire-and-forget)
+        void this.auditService.log({
+          organizationId,
+          userId: performedById,
+          action: ACTIONS.MEMBER_INVITED,
+          entityType: "member",
+          entityId: user.id,
+          details: {
+            method: "batch_import",
+            email,
+            role: member.role,
+            employmentType: member.employmentType,
+            departmentName: member.departmentName,
+          },
+        });
+
+        created++;
+      } catch (error) {
+        const msg =
+          error instanceof Error ? error.message : "Unknown error";
+        errors.push(`Row ${email}: ${msg}`);
+        failed++;
+      }
+    }
+
+    return { created, failed, errors };
   }
 }

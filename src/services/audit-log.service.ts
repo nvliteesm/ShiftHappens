@@ -45,6 +45,8 @@ const ACTIONS = {
   // Auth
   USER_REGISTERED: "user.registered",
   USER_LOGGED_IN: "user.logged_in",
+  // Organization
+  ORGANIZATION_UPDATED: "organization.updated",
 } as const;
 
 export type AuditAction = (typeof ACTIONS)[keyof typeof ACTIONS];

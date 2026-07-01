@@ -42,6 +42,27 @@ export class OrganizationRepository {
     });
   }
 
+  /**
+   * Updates an organization's details by ID.
+   * Accepts partial updates — only provided fields are changed.
+   */
+  async update(
+    id: string,
+    data: {
+      name?: string;
+      slug?: string;
+      industry?: string | null;
+      description?: string | null;
+      logo?: string | null;
+      address?: string | null;
+    }
+  ) {
+    return prisma.organization.update({
+      where: { id },
+      data,
+    });
+  }
+
   /** Finds an organization by its URL-friendly slug */
   async findBySlug(slug: string) {
     return prisma.organization.findUnique({ where: { slug } });

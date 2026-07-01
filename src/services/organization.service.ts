@@ -2,13 +2,14 @@
  * Organization Service (Control Layer)
  *
  * Handles organization creation with unique slug generation,
- * industry template application, and retrieval of user's organizations.
+ * industry template application, detail updates, and retrieval.
  *
  * Template application bypasses subscription tier limits —
  * it's initialization during org creation, not a regular user action.
  * After setup, all further additions are subject to tier limits.
  */
 import { OrganizationRepository } from "@/repositories/organization.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import {
   getTemplateById,
   validateCustomTemplate,
@@ -17,10 +18,11 @@ import {
   type CustomTemplateData,
 } from "@/lib/industry-templates";
 import { prisma } from "@/lib/prisma";
-import type { CreateOrganizationInput } from "@/lib/validations";
+import type { CreateOrganizationInput, UpdateOrganizationInput } from "@/lib/validations";
 
 export class OrganizationService {
   private orgRepo = new OrganizationRepository();
+  private auditService = new AuditLogService();
 
   /**
    * Creates a new organization:
@@ -64,6 +66,87 @@ export class OrganizationService {
     return org;
   }
 
+  /** Retrieves an organization by ID */
+  async getOrganization(orgId: string) {
+    return this.orgRepo.findById(orgId);
+  }
+
+  /**
+   * Updates an organization's details.
+   * If name changes, slug is auto-regenerated for consistency.
+   * Empty strings for optional fields are cleared to null.
+   */
+  async updateOrganization(
+    orgId: string,
+    input: UpdateOrganizationInput,
+    userId: string
+  ) {
+    const org = await this.orgRepo.findById(orgId);
+    if (!org) throw new Error("Organization not found");
+
+    const updateData: {
+      name?: string;
+      slug?: string;
+      industry?: string | null;
+      description?: string | null;
+      logo?: string | null;
+      address?: string | null;
+    } = {};
+
+    // Name change — trim and regenerate slug if actually different
+    if (input.name !== undefined) {
+      const trimmedName = input.name.trim();
+      if (trimmedName.length === 0) {
+        throw new Error("Organization name cannot be empty");
+      }
+      updateData.name = trimmedName;
+
+      if (trimmedName !== org.name) {
+        updateData.slug = await this.generateUniqueSlug(trimmedName);
+      }
+    }
+
+    // Optional fields — empty string clears to null
+    if (input.industry !== undefined) {
+      updateData.industry = input.industry.trim() || null;
+    }
+
+    if (input.description !== undefined) {
+      updateData.description = input.description.trim() || null;
+    }
+
+    if (input.logo !== undefined) {
+      updateData.logo = input.logo || null;
+    }
+
+    if (input.address !== undefined) {
+      updateData.address = input.address.trim() || null;
+    }
+
+    // No fields changed — return current org without DB write
+    if (Object.keys(updateData).length === 0) {
+      return org;
+    }
+
+    const updated = await this.orgRepo.update(orgId, updateData);
+
+    // Audit log (fire-and-forget)
+    void this.auditService.log({
+      organizationId: orgId,
+      userId,
+      action: ACTIONS.ORGANIZATION_UPDATED,
+      entityType: "organization",
+      entityId: orgId,
+      details: {
+        changes: Object.keys(updateData).filter((k) => k !== "slug"),
+        ...(updateData.name && { newName: updateData.name }),
+        ...(updateData.slug && { newSlug: updateData.slug }),
+      },
+    });
+
+    return updated;
+  }
+
   /** Retrieves all organizations a user belongs to */
   async getUserOrganizations(userId: string) {
     return this.orgRepo.findByUserId(userId);
@@ -75,7 +158,6 @@ export class OrganizationService {
    * Uses prisma directly — bypasses service-level tier checks.
    */
   private async applyTemplate(orgId: string, template: TemplateDefinition) {
-    // Create departments
     for (const dept of template.departments) {
       await prisma.department.create({
         data: {
@@ -87,7 +169,6 @@ export class OrganizationService {
       });
     }
 
-    // Create work rules
     for (const rule of template.workRules) {
       await prisma.workRule.create({
         data: {
@@ -108,7 +189,6 @@ export class OrganizationService {
    * Validates the data structure before creating resources.
    */
   private async applyCustomTemplate(orgId: string, template: CustomTemplateData) {
-    // Create departments
     for (const dept of template.departments) {
       await prisma.department.create({
         data: {
@@ -120,7 +200,6 @@ export class OrganizationService {
       });
     }
 
-    // Create work rules
     for (const rule of template.workRules) {
       await prisma.workRule.create({
         data: {

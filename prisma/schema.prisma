@@ -38,6 +38,7 @@ model Organization {
   description         String?
   logo                String?
   address             String?
+  templateId          String?
   status              String   @default("active")
   subscriptionTier    String   @default("free")   // "free" | "pro" | "enterprise"
   createdAt           DateTime @default(now())
@@ -405,4 +406,18 @@ model WorkRule {
 
   @@unique([organizationId, name])
   @@index([organizationId])
+}
+
+model IndustryTemplate {
+  id             String   @id @default(cuid())
+  name           String   @unique
+  icon           String   @default("Building")
+  description    String
+  departments    Json     // Array of {name, description, color}
+  workRules      Json     // Array of {name, type, hoursThreshold?, breakHours?, maxHours?, reason}
+  certifications Json     // Array of strings
+  isActive       Boolean  @default(true)
+  isAiGenerated  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

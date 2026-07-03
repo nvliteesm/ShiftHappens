@@ -69,6 +69,89 @@ const permissions = [
   { name: "audit:view", description: "View audit logs", category: "audit" },
 ];
 
+// ============================================================
+// Industry Templates
+// ============================================================
+
+const industryTemplates = [
+  {
+    name: "Hospitality / F&B",
+    icon: "UtensilsCrossed",
+    description: "Restaurants, cafes, bars, hotels",
+    departments: [
+      { name: "Kitchen", description: "Food preparation, cooking, and plating operations", color: "#EF4444" },
+      { name: "Bar", description: "Beverage service, inventory, and cocktail preparation", color: "#3B82F6" },
+      { name: "Front of House", description: "Guest relations, table management, dining room", color: "#10B981" },
+    ],
+    workRules: [
+      { name: "Service break interval", type: "break_interval", hoursThreshold: 6, breakHours: 1, reason: "Long service periods require regular rest to maintain quality" },
+      { name: "Daily shift cap", type: "max_hours_daily", maxHours: 10, reason: "Prevents fatigue during double shifts in fast-paced kitchens" },
+    ],
+    certifications: ["Food Safety Level 2", "RSA Certification", "First Aid"],
+  },
+  {
+    name: "Healthcare",
+    icon: "HeartPulse",
+    description: "Hospitals, clinics, care facilities",
+    departments: [
+      { name: "Emergency", description: "Acute care, triage, and emergency response", color: "#EF4444" },
+      { name: "General Ward", description: "Inpatient care, monitoring, and recovery", color: "#3B82F6" },
+      { name: "Outpatient", description: "Scheduled consultations, procedures, and follow-ups", color: "#10B981" },
+    ],
+    workRules: [
+      { name: "Shift duration cap", type: "max_hours_daily", maxHours: 12, reason: "Patient safety requires alert, rested staff on every shift" },
+      { name: "Weekly rotation limit", type: "max_hours_weekly", maxHours: 48, reason: "Mandatory rest between rotations to prevent clinical errors" },
+    ],
+    certifications: ["Nursing License", "CPR Certification", "First Aid"],
+  },
+  {
+    name: "Retail",
+    icon: "ShoppingCart",
+    description: "Stores, malls, supermarkets",
+    departments: [
+      { name: "Sales Floor", description: "Customer assistance, product display, and merchandising", color: "#8B5CF6" },
+      { name: "Warehouse", description: "Stock management, receiving, and inventory control", color: "#F59E0B" },
+      { name: "Customer Service", description: "Returns, inquiries, complaints, and support", color: "#10B981" },
+    ],
+    workRules: [
+      { name: "Floor break interval", type: "break_interval", hoursThreshold: 6, breakHours: 1, reason: "Retail staff on their feet for extended periods need regular breaks" },
+      { name: "Casual weekly limit", type: "max_hours_weekly", maxHours: 38, reason: "Standard casual employment cap under retail awards" },
+    ],
+    certifications: ["First Aid", "Cash Handling Certification"],
+  },
+  {
+    name: "Construction",
+    icon: "HardHat",
+    description: "Building, infrastructure, trades",
+    departments: [
+      { name: "Electrical", description: "Electrical systems installation, wiring, and maintenance", color: "#F59E0B" },
+      { name: "Structural", description: "Foundation, framing, and load-bearing construction", color: "#6B7280" },
+      { name: "Plumbing", description: "Water systems, drainage, and pipe fitting", color: "#3B82F6" },
+    ],
+    workRules: [
+      { name: "Physical labor daily cap", type: "max_hours_daily", maxHours: 10, reason: "Physical fatigue increases injury risk on construction sites" },
+      { name: "Mandatory site break", type: "break_interval", hoursThreshold: 6, breakHours: 1, reason: "Safety-critical rest requirement for heavy machinery operators" },
+    ],
+    certifications: ["Safety Induction (White Card)", "Working at Heights", "First Aid"],
+  },
+  {
+    name: "Software / IT Ops",
+    icon: "Server",
+    description: "Support desks, on-call rotations, DevOps",
+    departments: [
+      { name: "Helpdesk", description: "Tier 1-3 technical support and ticket resolution", color: "#3B82F6" },
+      { name: "DevOps", description: "Infrastructure, deployments, and system monitoring", color: "#10B981" },
+      { name: "QA", description: "Testing windows, release validation, and bug triage", color: "#8B5CF6" },
+      { name: "Infrastructure", description: "Server maintenance, network operations, and patching", color: "#F59E0B" },
+    ],
+    workRules: [
+      { name: "Operations weekly cap", type: "max_hours_weekly", maxHours: 40, reason: "Standard workweek for IT operations to prevent burnout" },
+      { name: "On-call shift cap", type: "max_hours_daily", maxHours: 12, reason: "Sustained alertness required for incident response" },
+    ],
+    certifications: ["AWS Certified", "ITIL Foundation", "Security Clearance"],
+  },
+];
+
 async function main() {
   console.log("Seeding permissions...");
 
@@ -81,6 +164,33 @@ async function main() {
   }
 
   console.log(`Seeded ${permissions.length} permissions.`);
+
+  console.log("Seeding industry templates...");
+
+  for (const template of industryTemplates) {
+    await prisma.industryTemplate.upsert({
+      where: { name: template.name },
+      update: {
+        icon: template.icon,
+        description: template.description,
+        departments: template.departments,
+        workRules: template.workRules,
+        certifications: template.certifications,
+      },
+      create: {
+        name: template.name,
+        icon: template.icon,
+        description: template.description,
+        departments: template.departments,
+        workRules: template.workRules,
+        certifications: template.certifications,
+        isActive: true,
+        isAiGenerated: false,
+      },
+    });
+  }
+
+  console.log(`Seeded ${industryTemplates.length} industry templates.`);
 }
 
 main()

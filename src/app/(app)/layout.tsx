@@ -38,7 +38,7 @@ export default async function AppLayout({
   }
 
   // Validate the session user still exists in the database
-  const dbUser = await userRepo.findById(session.user.id);
+  const dbUser = await userRepo.findPublicById(session.user.id);
   if (!dbUser) {
     redirect("/login");
   }
@@ -89,7 +89,7 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-screen">
       <AppSidebar
-        user={session.user}
+        user={{ name: dbUser.name, email: dbUser.email }}
         orgId={orgId}
         orgName={orgName}
         role={role}

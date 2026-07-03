@@ -8,6 +8,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +23,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<{
     name: string;
     email: string;
@@ -76,6 +78,7 @@ export default function ProfilePage() {
 
       setProfile(result);
       setMessage({ type: "success", text: "Profile updated successfully" });
+      router.refresh(); // Refresh the page to reflect changes
     } catch {
       setMessage({ type: "error", text: "Something went wrong" });
     } finally {

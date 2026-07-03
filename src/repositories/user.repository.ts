@@ -35,6 +35,23 @@ export class UserRepository {
     return prisma.user.findUnique({ where: { id } });
   }
 
+  /**
+   * Finds a user by ID returning only non-sensitive fields.
+   * Safe to pass to client components — no password hash.
+   */
+  async findPublicById(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        image: true,
+        emailVerified: true,
+      },
+    });
+  }
+
   /** Updates user profile fields (name and/or password) */
   async updateProfile(
     id: string,

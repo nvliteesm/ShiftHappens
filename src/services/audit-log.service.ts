@@ -47,6 +47,11 @@ const ACTIONS = {
   USER_LOGGED_IN: "user.logged_in",
   // Organization
   ORGANIZATION_UPDATED: "organization.updated",
+  // Billing / subscription
+  CHECKOUT_STARTED: "subscription.checkout_started",
+  SUBSCRIPTION_UPGRADED: "subscription.upgraded",
+  SUBSCRIPTION_UPDATED: "subscription.updated",
+  SUBSCRIPTION_CANCELED: "subscription.canceled",
 } as const;
 
 export type AuditAction = (typeof ACTIONS)[keyof typeof ACTIONS];

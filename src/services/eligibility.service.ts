@@ -189,7 +189,7 @@ export class EligibilityService {
     const recentAssignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: oneDayAgo },
         clockOutTime: { not: null },
       },
@@ -235,7 +235,8 @@ export class EligibilityService {
         assignments: {
           some: {
             membershipId,
-            status: { in: ["pending", "accepted"] },
+            // A pending withdrawal still occupies the schedule until resolved.
+            status: { in: ["pending", "accepted", "withdrawal_requested"] },
           },
         },
         scheduledStart: { lt: task.scheduledEnd },
@@ -367,7 +368,7 @@ export class EligibilityService {
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: oneDayAgo },
         clockOutTime: { not: null },
       },
@@ -389,7 +390,7 @@ export class EligibilityService {
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: dayStart, lt: dayEnd },
         clockOutTime: { not: null },
       },
@@ -415,7 +416,7 @@ export class EligibilityService {
     const assignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: weekStart, lt: weekEnd },
         clockOutTime: { not: null },
       },

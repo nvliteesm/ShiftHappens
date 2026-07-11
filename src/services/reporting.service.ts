@@ -768,9 +768,9 @@ export class ReportingService {
         }
       : null;
 
-    // Tasks this week summary
+    // Tasks this week summary — a shift is "done" once clocked out or completed
     const activeWeekAssignments = weekAssignments.filter(
-      (a) => a.status !== "completed"
+      (a) => !["clocked_out", "completed"].includes(a.status)
     );
     const pendingWeekCount = weekAssignments.filter(
       (a) => a.status === "pending"
@@ -779,7 +779,7 @@ export class ReportingService {
     // Personal stats from assignment history
     const totalAssignments = assignmentHistory.length;
     const acceptedOrCompleted = assignmentHistory.filter(
-      (a) => a.status === "accepted" || a.status === "completed"
+      (a) => ["accepted", "clocked_out", "completed"].includes(a.status)
     ).length;
     const rejectedCount = assignmentHistory.filter(
       (a) => a.status === "rejected"
@@ -809,7 +809,7 @@ export class ReportingService {
       certifications,
       stats: {
         shiftsThisMonth: assignmentHistory.filter(
-          (a) => a.status === "completed"
+          (a) => ["clocked_out", "completed"].includes(a.status)
         ).length,
         hoursThisMonth: Math.round(hoursThisMonth * 10) / 10,
         acceptanceRate:

@@ -171,7 +171,19 @@ describe("TaskAssignmentRepository", () => {
 
       const clocked = await assignmentRepo.clockOut(assignment.id);
       expect(clocked.clockOutTime).not.toBeNull();
-      expect(clocked.status).toBe("completed");
+      expect(clocked.status).toBe("clocked_out");
+    });
+  });
+
+  describe("complete", () => {
+    it("marks a clocked-out assignment as completed", async () => {
+      const assignment = await assignmentRepo.create({ taskId, membershipId, assignedById: userId });
+      await assignmentRepo.updateStatus(assignment.id, "accepted");
+      await assignmentRepo.clockIn(assignment.id);
+      await assignmentRepo.clockOut(assignment.id);
+
+      const completed = await assignmentRepo.complete(assignment.id);
+      expect(completed.status).toBe("completed");
     });
   });
 

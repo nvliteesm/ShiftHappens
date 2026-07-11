@@ -269,7 +269,7 @@ export class ReportingRepository {
             ? { departmentId: { in: departmentIds } }
             : {}),
         },
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: since },
         clockOutTime: { not: null },
       },

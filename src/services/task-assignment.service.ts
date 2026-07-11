@@ -141,7 +141,8 @@ export class TaskAssignmentService {
   }
 
   /**
-   * Records clock-out and marks assignment as completed.
+   * Records clock-out — moves the assignment to "clocked_out".
+   * The staff member confirms the work is done separately via `complete`.
    * Must be clocked in and not already clocked out.
    */
   async clockOut(assignmentId: string, membershipId: string) {
@@ -170,6 +171,157 @@ export class TaskAssignmentService {
       entityId: assignmentId,
       details: { taskTitle: assignment.task.title },
     });
+
+    return result;
+  }
+
+  /**
+   * Staff marks a clocked-out assignment as completed (US-78).
+   * Confirms the work is finished. Notifies the assigning manager.
+   */
+  async complete(assignmentId: string, membershipId: string) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+
+    if (assignment.membershipId !== membershipId) {
+      throw new Error("Not authorized to manage this assignment");
+    }
+
+    if (assignment.status !== "clocked_out") {
+      throw new Error("Can only complete a task after clocking out");
+    }
+
+    const result = await this.assignmentRepo.complete(assignmentId);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_COMPLETED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle: assignment.task.title },
+    });
+
+    const staffName = assignment.membership.user?.name || "A staff member";
+    void this.notificationService.notify(
+      assignment.assignedById,
+      NOTIFICATION_TYPES.TASK_COMPLETED,
+      "Task completed",
+      `${staffName} completed "${assignment.task.title}"`,
+      "task",
+      assignment.task.id
+    );
+
+    return result;
+  }
+
+  /**
+   * Staff requests to withdraw/abort an accepted assignment with a reason (US-76).
+   * The slot stays reserved (status "withdrawal_requested") until a manager
+   * approves or denies. Notifies the assigning manager.
+   */
+  async requestWithdrawal(assignmentId: string, membershipId: string, reason: string) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+
+    if (assignment.membershipId !== membershipId) {
+      throw new Error("Not authorized to manage this assignment");
+    }
+
+    if (assignment.status !== "accepted") {
+      throw new Error("Can only withdraw from an accepted task");
+    }
+
+    const result = await this.assignmentRepo.requestWithdrawal(assignmentId, reason);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: assignment.membership.userId,
+      action: ACTIONS.ASSIGNMENT_WITHDRAWAL_REQUESTED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { reason, taskTitle: assignment.task.title },
+    });
+
+    const staffName = assignment.membership.user?.name || "A staff member";
+    void this.notificationService.notify(
+      assignment.assignedById,
+      NOTIFICATION_TYPES.WITHDRAWAL_REQUESTED,
+      "Withdrawal requested",
+      `${staffName} requested to withdraw from "${assignment.task.title}" — ${reason}`,
+      "task",
+      assignment.task.id
+    );
+
+    return result;
+  }
+
+  /**
+   * Manager approves or denies a pending withdrawal request.
+   * Approve removes the staff member from the task (frees the slot);
+   * deny reverts the assignment to accepted. Notifies the staff member.
+   * Authorization (manager/admin) is enforced at the route layer.
+   */
+  async resolveWithdrawal(
+    assignmentId: string,
+    decision: "approve" | "deny",
+    actorUserId: string
+  ) {
+    const assignment = await this.assignmentRepo.findById(assignmentId);
+    if (!assignment) throw new Error("Assignment not found");
+
+    if (assignment.status !== "withdrawal_requested") {
+      throw new Error("No pending withdrawal request for this assignment");
+    }
+
+    const staffUserId = assignment.membership.userId;
+    const taskTitle = assignment.task.title;
+
+    if (decision === "approve") {
+      // Remove the staff member from the task, freeing the slot.
+      await this.assignmentRepo.cancel(assignmentId);
+
+      await this.auditService.log({
+        organizationId: assignment.task.organizationId,
+        userId: actorUserId,
+        action: ACTIONS.ASSIGNMENT_WITHDRAWAL_APPROVED,
+        entityType: "assignment",
+        entityId: assignmentId,
+        details: { taskTitle, reason: assignment.withdrawalReason },
+      });
+
+      void this.notificationService.notify(
+        staffUserId,
+        NOTIFICATION_TYPES.WITHDRAWAL_APPROVED,
+        "Withdrawal approved",
+        `Your request to withdraw from "${taskTitle}" was approved. You've been unassigned.`,
+        "task",
+        assignment.task.id
+      );
+
+      return { id: assignmentId, status: "withdrawn" };
+    }
+
+    // Deny — revert to accepted.
+    const result = await this.assignmentRepo.denyWithdrawal(assignmentId);
+
+    await this.auditService.log({
+      organizationId: assignment.task.organizationId,
+      userId: actorUserId,
+      action: ACTIONS.ASSIGNMENT_WITHDRAWAL_DENIED,
+      entityType: "assignment",
+      entityId: assignmentId,
+      details: { taskTitle },
+    });
+
+    void this.notificationService.notify(
+      staffUserId,
+      NOTIFICATION_TYPES.WITHDRAWAL_DENIED,
+      "Withdrawal declined",
+      `Your request to withdraw from "${taskTitle}" was declined. You remain assigned.`,
+      "task",
+      assignment.task.id
+    );
 
     return result;
   }

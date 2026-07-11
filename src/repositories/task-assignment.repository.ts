@@ -115,26 +115,62 @@ export class TaskAssignmentRepository {
     });
   }
 
-  /** Records clock-out time and marks assignment as completed */
+  /**
+   * Records clock-out time and moves the assignment to "clocked_out".
+   * The shift is worked but not yet confirmed done — the staff member
+   * explicitly marks it completed afterwards (see `complete`).
+   */
   async clockOut(id: string) {
     return prisma.taskAssignment.update({
       where: { id },
       data: {
         clockOutTime: new Date(),
-        status: "completed",
+        status: "clocked_out",
+      },
+    });
+  }
+
+  /** Marks a clocked-out assignment as completed (staff confirmation). */
+  async complete(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: { status: "completed" },
+    });
+  }
+
+  /** Records a staff withdrawal request with a reason. Slot stays reserved. */
+  async requestWithdrawal(id: string, reason: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        status: "withdrawal_requested",
+        withdrawalReason: reason,
+      },
+    });
+  }
+
+  /** Manager denies a withdrawal request — assignment reverts to accepted. */
+  async denyWithdrawal(id: string) {
+    return prisma.taskAssignment.update({
+      where: { id },
+      data: {
+        status: "accepted",
+        withdrawalReason: null,
       },
     });
   }
 
   /**
-   * Counts active (non-rejected, non-completed) assignments for a task.
+   * Counts active (slot-occupying) assignments for a task.
+   * pending, accepted, and withdrawal_requested all reserve a slot —
+   * a pending withdrawal keeps the seat until a manager resolves it.
    * Used to check against requiredHeadcount before adding more.
    */
   async countActiveByTaskId(taskId: string): Promise<number> {
     return prisma.taskAssignment.count({
       where: {
         taskId,
-        status: { in: ["pending", "accepted"] },
+        status: { in: ["pending", "accepted", "withdrawal_requested"] },
       },
     });
   }

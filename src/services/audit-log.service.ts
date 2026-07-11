@@ -23,6 +23,10 @@ const ACTIONS = {
   ASSIGNMENT_REJECTED: "assignment.rejected",
   ASSIGNMENT_CLOCKED_IN: "assignment.clocked_in",
   ASSIGNMENT_CLOCKED_OUT: "assignment.clocked_out",
+  ASSIGNMENT_COMPLETED: "assignment.completed",
+  ASSIGNMENT_WITHDRAWAL_REQUESTED: "assignment.withdrawal_requested",
+  ASSIGNMENT_WITHDRAWAL_APPROVED: "assignment.withdrawal_approved",
+  ASSIGNMENT_WITHDRAWAL_DENIED: "assignment.withdrawal_denied",
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_ROLE_CHANGED: "member.role_changed",

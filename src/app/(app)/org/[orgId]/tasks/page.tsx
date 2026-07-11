@@ -36,6 +36,7 @@ interface Task {
     status: string;
     clockInTime: string | null;
     clockOutTime: string | null;
+    withdrawalReason: string | null;
     membership: { user: { id: string; name: string | null } };
   }[];
 }
@@ -407,6 +408,31 @@ export default function TasksPage() {
     }
   }
 
+  async function onResolveWithdrawal(
+    assignmentId: string,
+    decision: "approve" | "deny"
+  ) {
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/assignments/${assignmentId}/withdrawal?orgId=${orgId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        }
+      );
+      if (!res.ok) {
+        const result = await res.json();
+        setError(result.error || "Failed to resolve withdrawal");
+        return;
+      }
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
   function toggleMemberSelection(membId: string) {
     setSelectedMembers((prev) =>
       prev.includes(membId)
@@ -417,10 +443,17 @@ export default function TasksPage() {
 
   function statusColor(status: string) {
     switch (status) {
+      // Task statuses
       case "open": return "bg-blue-100 text-blue-700";
       case "in_progress": return "bg-amber-100 text-amber-700";
       case "completed": return "bg-green-100 text-green-700";
       case "cancelled": return "bg-gray-100 text-gray-600";
+      // Assignment statuses (badges reuse this)
+      case "pending": return "bg-amber-100 text-amber-700";
+      case "accepted": return "bg-blue-100 text-blue-700";
+      case "rejected": return "bg-red-100 text-red-700";
+      case "clocked_out": return "bg-indigo-100 text-indigo-700";
+      case "withdrawal_requested": return "bg-orange-100 text-orange-700";
       default: return "bg-gray-100 text-gray-600";
     }
   }
@@ -748,30 +781,56 @@ export default function TasksPage() {
               {task.assignments.length > 0 && (
                 <CardContent>
                   <p className="mb-2 text-sm font-medium">Assigned staff</p>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {task.assignments.map((a) => (
-                      <div key={a.id} className="flex items-center gap-2 text-sm">
-                        <span>{a.membership.user.name || "Unnamed"}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                          {a.status}
-                        </span>
-                        {a.clockInTime && (
-                          <span className="text-xs text-muted-foreground">
-                            In: {new Date(a.clockInTime).toLocaleTimeString()}
+                      <div key={a.id} className="text-sm">
+                        <div className="flex items-center gap-2">
+                          <span>{a.membership.user.name || "Unnamed"}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
+                            {a.status.replace(/_/g, " ")}
                           </span>
-                        )}
-                        {a.clockOutTime && (
-                          <span className="text-xs text-muted-foreground">
-                            Out: {new Date(a.clockOutTime).toLocaleTimeString()}
-                          </span>
-                        )}
-                        {a.status !== "completed" && (
-                          <button
-                            className="text-xs text-red-500 hover:underline"
-                            onClick={() => onCancelAssignment(a.id)}
-                          >
-                            Unassign
-                          </button>
+                          {a.clockInTime && (
+                            <span className="text-xs text-muted-foreground">
+                              In: {new Date(a.clockInTime).toLocaleTimeString()}
+                            </span>
+                          )}
+                          {a.clockOutTime && (
+                            <span className="text-xs text-muted-foreground">
+                              Out: {new Date(a.clockOutTime).toLocaleTimeString()}
+                            </span>
+                          )}
+                          {a.status !== "completed" && a.status !== "withdrawal_requested" && (
+                            <button
+                              className="text-xs text-red-500 hover:underline"
+                              onClick={() => onCancelAssignment(a.id)}
+                            >
+                              Unassign
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Pending withdrawal request — manager approves or denies */}
+                        {a.status === "withdrawal_requested" && (
+                          <div className="mt-1 rounded-md border border-orange-200 bg-orange-50 p-2 dark:border-orange-900 dark:bg-orange-950/40">
+                            <p className="text-xs text-orange-800 dark:text-orange-300">
+                              Requested to withdraw
+                              {a.withdrawalReason ? `: "${a.withdrawalReason}"` : ""}
+                            </p>
+                            <div className="mt-1.5 flex gap-2">
+                              <button
+                                className="rounded bg-red-600 px-2 py-0.5 text-xs text-white hover:bg-red-700"
+                                onClick={() => onResolveWithdrawal(a.id, "approve")}
+                              >
+                                Approve &amp; unassign
+                              </button>
+                              <button
+                                className="rounded border px-2 py-0.5 text-xs hover:bg-muted"
+                                onClick={() => onResolveWithdrawal(a.id, "deny")}
+                              >
+                                Deny
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     ))}

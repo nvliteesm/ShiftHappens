@@ -253,6 +253,16 @@ export const rejectTaskSchema = z.object({
   rejectionNotes: z.string().max(500).optional(),
 });
 
+/** Validates a staff withdrawal/abort request on an accepted assignment */
+export const withdrawTaskSchema = z.object({
+  reason: z.string().min(3, "Please give a brief reason").max(500),
+});
+
+/** Validates a manager's decision on a pending withdrawal request */
+export const withdrawalDecisionSchema = z.object({
+  decision: z.enum(["approve", "deny"]),
+});
+
 // ============================================================
 // Phase 5: Availability, Certification & Eligibility Schemas
 // ============================================================

@@ -365,6 +365,52 @@ describe("TaskService", () => {
         taskService.assignStaff(task2.id, orgId, [staffMembershipId], userId)
       ).rejects.toThrow("scheduling conflict");
     });
+
+    it("allows assignment through a scheduling conflict when overridden", async () => {
+      const task1 = await taskService.create(
+        {
+          title: "Morning shift",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+      await taskService.assignStaff(task1.id, orgId, [staffMembershipId], userId);
+      await prisma.taskAssignment.updateMany({
+        where: { taskId: task1.id },
+        data: { status: "accepted" },
+      });
+
+      const task2 = await taskService.create(
+        {
+          title: "Overlapping shift",
+          scheduledStart: "2026-06-01T10:00:00.000Z",
+          scheduledEnd: "2026-06-01T14:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+
+      // Manager documents an override for the conflict, then assignment succeeds.
+      await prisma.eligibilityOverride.create({
+        data: {
+          taskId: task2.id,
+          membershipId: staffMembershipId,
+          overriddenById: userId,
+          reason: "Short-staffed",
+          ruleOverridden: "all",
+        },
+      });
+
+      const assignments = await taskService.assignStaff(
+        task2.id,
+        orgId,
+        [staffMembershipId],
+        userId
+      );
+      expect(assignments).toHaveLength(1);
+    });
   });
 
   describe("assignStaffValidation", () => {

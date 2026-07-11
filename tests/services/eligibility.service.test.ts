@@ -800,5 +800,50 @@ describe("EligibilityService", () => {
       expect(staffResult!.checks.availability.eligible).toBe(true);
       expect(staffResult!.overrides).toContain("availability");
     });
+
+    it("an 'all' override waives a scheduling conflict", async () => {
+      const task1 = await taskRepo.create({
+        title: "Morning shift",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T09:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T12:00:00.000Z"),
+      });
+      await prisma.taskAssignment.create({
+        data: {
+          taskId: task1.id,
+          membershipId: staffMembershipId,
+          assignedById: adminUserId,
+          status: "accepted",
+        },
+      });
+      const task2 = await taskRepo.create({
+        title: "Overlapping task",
+        organizationId: orgId,
+        createdById: adminUserId,
+        scheduledStart: new Date("2026-06-15T10:00:00.000Z"),
+        scheduledEnd: new Date("2026-06-15T14:00:00.000Z"),
+      });
+
+      // Blanket "all" override waives every warning for this member on the task.
+      await eligibilityService.createOverride(
+        task2.id,
+        staffMembershipId,
+        adminUserId,
+        "Short-staffed — manager approved",
+        "all"
+      );
+
+      const results = await eligibilityService.checkEligibilityForTask(
+        task2.id,
+        orgId
+      );
+      const staffResult = results.find(
+        (r) => r.membershipId === staffMembershipId
+      );
+      expect(staffResult!.checks.scheduling.eligible).toBe(true);
+      expect(staffResult!.eligible).toBe(true);
+      expect(staffResult!.overrides).toContain("all");
+    });
   });
 });

@@ -5,13 +5,12 @@
  * Step 1: Choose an industry template (or generate custom with AI)
  * Step 2: Enter organization details and create
  *
- * Templates auto-create departments and work rules on org creation.
+ * Templates are fetched from the database via API.
  * Custom template option allows AI-generated setup from a business
  * description, or manual blank start.
  */
 "use client";
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,26 +36,33 @@ import {
   Check,
   ShieldCheck,
   Award,
+  Building,
 } from "lucide-react";
-import {
-  INDUSTRY_TEMPLATES,
-  CUSTOM_TEMPLATE_ID,
-  getTemplateById,
-  type TemplateDefinition,
-  type CustomTemplateData,
-} from "@/lib/industry-templates";
+import type { CustomTemplateData } from "@/lib/industry-templates";
+
+const CUSTOM_TEMPLATE_ID = "custom";
 
 // ─── Icon mapping ─────────────────────────────────────────────────────────
-
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   UtensilsCrossed,
   HeartPulse,
   ShoppingCart,
   HardHat,
   Server,
+  Building,
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────
+interface DatabaseTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  departments: { name: string; description: string; color: string }[];
+  workRules: { name: string; type: string; hoursThreshold?: number | null; breakHours?: number | null; maxHours?: number | null; reason: string }[];
+  certifications: string[];
+  isActive: boolean;
+}
 
 interface TemplatePreview {
   departments: { name: string; description: string; color: string }[];
@@ -65,7 +71,6 @@ interface TemplatePreview {
 }
 
 // ─── Template Preview Panel ───────────────────────────────────────────────
-
 function PreviewPanel({ template, title }: { template: TemplatePreview; title: string }) {
   function formatRule(rule: TemplatePreview["workRules"][0]): string {
     if (rule.type === "break_interval") {
@@ -79,11 +84,9 @@ function PreviewPanel({ template, title }: { template: TemplatePreview; title: s
     }
     return rule.name;
   }
-
   return (
     <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
       <p className="text-sm font-medium">{title} — template preview</p>
-
       <div>
         <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
           Departments
@@ -110,7 +113,6 @@ function PreviewPanel({ template, title }: { template: TemplatePreview; title: s
           ))}
         </div>
       </div>
-
       {template.workRules.length > 0 && (
         <div>
           <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
@@ -129,7 +131,6 @@ function PreviewPanel({ template, title }: { template: TemplatePreview; title: s
           </div>
         </div>
       )}
-
       {template.certifications.length > 0 && (
         <div>
           <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
@@ -153,15 +154,18 @@ function PreviewPanel({ template, title }: { template: TemplatePreview; title: s
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────
-
 export default function OnboardingPage() {
   const router = useRouter();
+
+  // Templates from database
+  const [templates, setTemplates] = useState<DatabaseTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
 
   // Step management
   const [step, setStep] = useState<"template" | "details">("template");
 
   // Template selection
-  const [selectedId, setSelectedId] = useState<string>("hospitality");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [customTemplate, setCustomTemplate] = useState<CustomTemplateData | null>(null);
   const [skipTemplate, setSkipTemplate] = useState(false);
 
@@ -174,20 +178,45 @@ export default function OnboardingPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fetch templates on mount
+  useEffect(() => {
+    async function fetchTemplates() {
+      try {
+        const res = await fetch("/api/platform/templates");
+        if (res.ok) {
+          const data = await res.json();
+          setTemplates(data);
+          // Auto-select first template
+          if (data.length > 0) {
+            setSelectedId(data[0].id);
+          }
+        }
+      } catch {
+        // Non-critical — user can still use custom or blank
+      } finally {
+        setTemplatesLoading(false);
+      }
+    }
+    fetchTemplates();
+  }, []);
+
+  // Local template lookup
+  function findTemplate(id: string): DatabaseTemplate | undefined {
+    return templates.find((t) => t.id === id);
+  }
+
   // Get current preview data
   function getPreview(): TemplatePreview | null {
     if (selectedId === CUSTOM_TEMPLATE_ID) {
       return customTemplate;
     }
-    const template = getTemplateById(selectedId);
-    return template || null;
+    return findTemplate(selectedId) || null;
   }
 
   // Get template name for preview title
   function getPreviewTitle(): string {
     if (selectedId === CUSTOM_TEMPLATE_ID) return "Custom";
-    const template = getTemplateById(selectedId);
-    return template?.name || "Template";
+    return findTemplate(selectedId)?.name || "Template";
   }
 
   // AI template generation
@@ -196,24 +225,19 @@ export default function OnboardingPage() {
       setAiError("Please describe your business in at least 20 characters");
       return;
     }
-
     setAiLoading(true);
     setAiError(null);
-
     try {
       const response = await fetch("/api/organizations/generate-template", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: aiInput }),
       });
-
       const result = await response.json();
-
       if (!response.ok) {
         setAiError(result.error || "Failed to generate template");
         return;
       }
-
       setCustomTemplate(result as CustomTemplateData);
       setSkipTemplate(false);
     } catch {
@@ -228,15 +252,12 @@ export default function OnboardingPage() {
     event.preventDefault();
     setError(null);
     setCreating(true);
-
     const formData = new FormData(event.currentTarget);
     const name = formData.get("name") as string;
     const industry = formData.get("industry") as string;
     const description = formData.get("description") as string;
-
     try {
       const body: Record<string, unknown> = { name, industry, description };
-
       if (!skipTemplate) {
         if (selectedId === CUSTOM_TEMPLATE_ID && customTemplate) {
           body.customTemplate = customTemplate;
@@ -244,20 +265,16 @@ export default function OnboardingPage() {
           body.templateId = selectedId;
         }
       }
-
       const response = await fetch("/api/organizations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
       const result = await response.json();
-
       if (!response.ok) {
         setError(result.error || "Failed to create organization");
         return;
       }
-
       router.push("/dashboard");
       router.refresh();
     } catch {
@@ -270,8 +287,13 @@ export default function OnboardingPage() {
   // Get industry from selected template for pre-fill
   function getIndustryFromTemplate(): string {
     if (selectedId === CUSTOM_TEMPLATE_ID) return "";
-    const template = getTemplateById(selectedId);
-    return template?.name || "";
+    return findTemplate(selectedId)?.name || "";
+  }
+
+  // Get selected template data for step 2 summary
+  function getSelectedTemplateData(): TemplatePreview | null {
+    if (selectedId === CUSTOM_TEMPLATE_ID) return customTemplate;
+    return findTemplate(selectedId) || null;
   }
 
   const preview = getPreview();
@@ -291,166 +313,171 @@ export default function OnboardingPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Template grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {INDUSTRY_TEMPLATES.map((template) => {
-                  const IconComponent = ICON_MAP[template.icon];
-                  const isSelected = selectedId === template.id;
-
-                  return (
+              {templatesLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Loading templates...
+                </p>
+              ) : (
+                <>
+                  {/* Template grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {templates.map((template) => {
+                      const IconComponent = ICON_MAP[template.icon] || Building;
+                      const isSelected = selectedId === template.id;
+                      return (
+                        <button
+                          key={template.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedId(template.id);
+                            setCustomTemplate(null);
+                            setSkipTemplate(false);
+                            setAiError(null);
+                          }}
+                          className={`rounded-lg border p-4 text-left transition-all ${
+                            isSelected
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <IconComponent
+                            className={`h-5 w-5 mb-2 ${
+                              isSelected
+                                ? "text-primary"
+                                : "text-muted-foreground"
+                            }`}
+                          />
+                          <p className="text-sm font-medium">{template.name}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {template.description}
+                          </p>
+                        </button>
+                      );
+                    })}
+                    {/* Custom template card */}
                     <button
-                      key={template.id}
                       type="button"
                       onClick={() => {
-                        setSelectedId(template.id);
-                        setCustomTemplate(null);
+                        setSelectedId(CUSTOM_TEMPLATE_ID);
                         setSkipTemplate(false);
-                        setAiError(null);
                       }}
                       className={`rounded-lg border p-4 text-left transition-all ${
-                        isSelected
+                        selectedId === CUSTOM_TEMPLATE_ID
                           ? "border-primary bg-primary/5 ring-1 ring-primary"
                           : "border-border hover:border-primary/50"
                       }`}
                     >
-                      {IconComponent && (
-                        <IconComponent
-                          className={`h-5 w-5 mb-2 ${
-                            isSelected
-                              ? "text-primary"
-                              : "text-muted-foreground"
-                          }`}
-                        />
-                      )}
-                      <p className="text-sm font-medium">{template.name}</p>
+                      <Sparkles
+                        className={`h-5 w-5 mb-2 ${
+                          selectedId === CUSTOM_TEMPLATE_ID
+                            ? "text-primary"
+                            : "text-muted-foreground"
+                        }`}
+                      />
+                      <p className="text-sm font-medium">Custom</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {template.description}
+                        AI-generated or blank start
                       </p>
                     </button>
-                  );
-                })}
-
-                {/* Custom template card */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedId(CUSTOM_TEMPLATE_ID);
-                    setSkipTemplate(false);
-                  }}
-                  className={`rounded-lg border p-4 text-left transition-all ${
-                    selectedId === CUSTOM_TEMPLATE_ID
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  <Sparkles
-                    className={`h-5 w-5 mb-2 ${
-                      selectedId === CUSTOM_TEMPLATE_ID
-                        ? "text-primary"
-                        : "text-muted-foreground"
-                    }`}
-                  />
-                  <p className="text-sm font-medium">Custom</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    AI-generated or blank start
-                  </p>
-                </button>
-              </div>
-
-              {/* Custom template: AI input */}
-              {selectedId === CUSTOM_TEMPLATE_ID && !skipTemplate && (
-                <div className="space-y-3 rounded-lg border p-4">
-                  <div>
-                    <Label htmlFor="ai-description" className="text-sm">
-                      Describe your business and let AI set things up
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Include your industry, team size, and any specific
-                      scheduling needs.
-                    </p>
                   </div>
-                  <textarea
-                    id="ai-description"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                    placeholder='e.g. "We run a boutique hotel with a restaurant, spa, and concierge service. 20 casual staff, open 7 days, busiest on weekends."'
-                    value={aiInput}
-                    onChange={(e) => setAiInput(e.target.value)}
-                    maxLength={500}
-                  />
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      {aiInput.length}/500 characters
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={generateTemplate}
-                      disabled={aiLoading || aiInput.length < 20}
-                    >
-                      {aiLoading ? (
-                        "Generating..."
-                      ) : (
-                        <>
-                          <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                          Generate setup
-                        </>
+
+                  {/* Custom template: AI input */}
+                  {selectedId === CUSTOM_TEMPLATE_ID && !skipTemplate && (
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <div>
+                        <Label htmlFor="ai-description" className="text-sm">
+                          Describe your business and let AI set things up
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Include your industry, team size, and any specific
+                          scheduling needs.
+                        </p>
+                      </div>
+                      <textarea
+                        id="ai-description"
+                        className="w-full rounded-md border bg-background px-3 py-2 text-sm min-h-[80px] resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder='e.g. "We run a boutique hotel with a restaurant, spa, and concierge service. 20 casual staff, open 7 days, busiest on weekends."'
+                        value={aiInput}
+                        onChange={(e) => setAiInput(e.target.value)}
+                        maxLength={500}
+                      />
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {aiInput.length}/500 characters
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={generateTemplate}
+                          disabled={aiLoading || aiInput.length < 20}
+                        >
+                          {aiLoading ? (
+                            "Generating..."
+                          ) : (
+                            <>
+                              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                              Generate setup
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      {aiError && (
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                          {aiError}
+                        </p>
                       )}
-                    </Button>
-                  </div>
-                  {aiError && (
-                    <p className="text-xs text-red-600 dark:text-red-400">
-                      {aiError}
-                    </p>
+                      <div className="flex items-center gap-3">
+                        <Separator className="flex-1" />
+                        <span className="text-xs text-muted-foreground">or</span>
+                        <Separator className="flex-1" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSkipTemplate(true);
+                          setCustomTemplate(null);
+                        }}
+                        className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        Skip to manual setup →
+                      </button>
+                    </div>
                   )}
 
-                  <div className="flex items-center gap-3">
-                    <Separator className="flex-1" />
-                    <span className="text-xs text-muted-foreground">or</span>
-                    <Separator className="flex-1" />
-                  </div>
+                  {/* Blank start confirmation */}
+                  {selectedId === CUSTOM_TEMPLATE_ID && skipTemplate && (
+                    <div className="rounded-lg border border-dashed p-4 text-center">
+                      <p className="text-sm text-muted-foreground">
+                        No pre-configured setup. You&apos;ll create departments and
+                        work rules after your organization is created.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSkipTemplate(false)}
+                        className="mt-2 text-xs text-primary hover:underline"
+                      >
+                        Back to AI generation
+                      </button>
+                    </div>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSkipTemplate(true);
-                      setCustomTemplate(null);
-                    }}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Skip to manual setup →
-                  </button>
-                </div>
-              )}
+                  {/* Template preview */}
+                  {preview && selectedId !== CUSTOM_TEMPLATE_ID && (
+                    <PreviewPanel template={preview} title={getPreviewTitle()} />
+                  )}
 
-              {/* Blank start confirmation */}
-              {selectedId === CUSTOM_TEMPLATE_ID && skipTemplate && (
-                <div className="rounded-lg border border-dashed p-4 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    No pre-configured setup. You&apos;ll create departments and
-                    work rules after your organization is created.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setSkipTemplate(false)}
-                    className="mt-2 text-xs text-primary hover:underline"
-                  >
-                    Back to AI generation
-                  </button>
-                </div>
-              )}
-
-              {/* Template preview */}
-              {preview && <PreviewPanel template={preview} title={getPreviewTitle()} />}
-
-              {/* AI-generated custom preview */}
-              {selectedId === CUSTOM_TEMPLATE_ID && customTemplate && (
-                <PreviewPanel template={customTemplate} title="AI-generated" />
+                  {/* AI-generated custom preview */}
+                  {selectedId === CUSTOM_TEMPLATE_ID && customTemplate && (
+                    <PreviewPanel template={customTemplate} title="AI-generated" />
+                  )}
+                </>
               )}
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button
                 type="button"
                 onClick={() => setStep("details")}
+                disabled={templatesLoading}
               >
                 Next
                 <ArrowRight className="h-4 w-4 ml-1.5" />
@@ -480,7 +507,6 @@ export default function OnboardingPage() {
                     {error}
                   </div>
                 )}
-
                 <div className="space-y-2">
                   <Label htmlFor="name">Organization name</Label>
                   <Input
@@ -490,7 +516,6 @@ export default function OnboardingPage() {
                     placeholder="e.g. Ocean Grill"
                   />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="industry">Industry</Label>
                   <Input
@@ -500,7 +525,6 @@ export default function OnboardingPage() {
                     placeholder="e.g. Hospitality, Retail, Healthcare"
                   />
                 </div>
-
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Input
@@ -509,7 +533,6 @@ export default function OnboardingPage() {
                     placeholder="Brief description of your organization"
                   />
                 </div>
-
                 {/* Selected template summary */}
                 {!skipTemplate && (selectedId !== CUSTOM_TEMPLATE_ID || customTemplate) && (
                   <div className="rounded-lg bg-muted/50 p-3">
@@ -518,11 +541,11 @@ export default function OnboardingPage() {
                       <span>
                         Template will create{" "}
                         <span className="font-medium">
-                          {(customTemplate || getTemplateById(selectedId))?.departments.length || 0} departments
+                          {getSelectedTemplateData()?.departments.length || 0} departments
                         </span>
                         {" "}and{" "}
                         <span className="font-medium">
-                          {(customTemplate || getTemplateById(selectedId))?.workRules.length || 0} work rules
+                          {getSelectedTemplateData()?.workRules.length || 0} work rules
                         </span>
                       </span>
                     </div>

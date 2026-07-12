@@ -3,7 +3,7 @@
  * POST /api/organizations/generate-template
  *
  * Receives a business description, uses AI (Groq → Gemini fallback)
- * to generate departments, work rules, and certifications.
+ * to generate a template name, departments, work rules, and certifications.
  *
  * Input validation:
  * - 20-500 characters
@@ -12,6 +12,7 @@
  *
  * Output validation:
  * - JSON parsed and structure verified
+ * - Name validated as short industry label
  * - Department count capped at 3-6
  * - Work rule types validated against enum
  * - Numeric values checked for sensible ranges
@@ -22,7 +23,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_API_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 const VALID_RULE_TYPES = ["break_interval", "max_hours_daily", "max_hours_weekly"];
 const DEFAULT_COLORS = ["#EF4444", "#3B82F6", "#10B981", "#8B5CF6", "#F59E0B", "#6B7280"];
@@ -53,6 +55,7 @@ const SYSTEM_PROMPT = `You are a workforce management setup assistant. Based on 
 
 Return ONLY valid JSON with this exact structure (no markdown, no backticks, no explanation):
 {
+  "name": "Short Industry Name (2-4 words, e.g. Dental Clinic, Logistics / Warehousing)",
   "departments": [
     { "name": "Department Name", "description": "What this department handles", "color": "#HEX" }
   ],
@@ -63,6 +66,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no backticks, no 
 }
 
 Rules:
+- "name" should be a concise industry label (2-4 words), NOT the full description
 - Suggest 3-5 departments relevant to the business
 - Suggest 2-3 work rules appropriate for the industry
 - Suggest 2-5 relevant certifications
@@ -96,7 +100,6 @@ async function callGroq(description: string): Promise<string | null> {
     });
 
     if (!response.ok) return null;
-
     const data = await response.json();
     return data.choices?.[0]?.message?.content || null;
   } catch {
@@ -116,7 +119,9 @@ async function callGemini(description: string): Promise<string | null> {
         contents: [
           {
             parts: [
-              { text: `${SYSTEM_PROMPT}\n\nBusiness description: ${description}` },
+              {
+                text: `${SYSTEM_PROMPT}\n\nBusiness description: ${description}`,
+              },
             ],
           },
         ],
@@ -125,7 +130,6 @@ async function callGemini(description: string): Promise<string | null> {
     });
 
     if (!response.ok) return null;
-
     const data = await response.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch {
@@ -144,20 +148,32 @@ function parseAndValidate(raw: string | null): Record<string, unknown> | null {
 
     const parsed = JSON.parse(cleaned);
 
+    // Validate name
+    parsed.name =
+      typeof parsed.name === "string" && parsed.name.trim().length > 0
+        ? parsed.name.trim().slice(0, 100)
+        : null;
+
     // Validate departments
-    if (!Array.isArray(parsed.departments) || parsed.departments.length === 0) return null;
+    if (!Array.isArray(parsed.departments) || parsed.departments.length === 0)
+      return null;
+
     parsed.departments = parsed.departments.slice(0, 6).map(
       (d: Record<string, unknown>, i: number) => ({
         name: String(d.name || `Department ${i + 1}`).slice(0, 50),
         description: String(d.description || "").slice(0, 200),
-        color: DEFAULT_COLORS.includes(String(d.color)) ? String(d.color) : DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+        color: DEFAULT_COLORS.includes(String(d.color))
+          ? String(d.color)
+          : DEFAULT_COLORS[i % DEFAULT_COLORS.length],
       })
     );
 
     // Validate work rules
     if (!Array.isArray(parsed.workRules)) parsed.workRules = [];
     parsed.workRules = parsed.workRules
-      .filter((r: Record<string, unknown>) => VALID_RULE_TYPES.includes(String(r.type)))
+      .filter((r: Record<string, unknown>) =>
+        VALID_RULE_TYPES.includes(String(r.type))
+      )
       .slice(0, 4)
       .map((r: Record<string, unknown>) => {
         const type = String(r.type);
@@ -204,16 +220,21 @@ export async function POST(request: NextRequest) {
     // Input validation
     if (description.length < 20) {
       return NextResponse.json(
-        { error: "Please provide at least 20 characters describing your business" },
+        {
+          error:
+            "Please provide at least 20 characters describing your business",
+        },
         { status: 400 }
       );
     }
+
     if (description.length > 500) {
       return NextResponse.json(
         { error: "Description must be under 500 characters" },
         { status: 400 }
       );
     }
+
     if (isInjectionAttempt(description)) {
       return NextResponse.json(
         { error: "Please provide a genuine business description" },
@@ -232,7 +253,10 @@ export async function POST(request: NextRequest) {
 
     if (!result) {
       return NextResponse.json(
-        { error: "Couldn't generate suggestions. Try describing your business differently, or use a preset template." },
+        {
+          error:
+            "Couldn't generate suggestions. Try describing your business differently, or use a preset template.",
+        },
         { status: 422 }
       );
     }

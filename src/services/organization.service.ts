@@ -11,18 +11,17 @@
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import {
-  getTemplateById,
   validateCustomTemplate,
-  CUSTOM_TEMPLATE_ID,
-  type TemplateDefinition,
   type CustomTemplateData,
 } from "@/lib/industry-templates";
+import { IndustryTemplateRepository } from "@/repositories/industry-template.repository";
 import { prisma } from "@/lib/prisma";
 import type { CreateOrganizationInput, UpdateOrganizationInput } from "@/lib/validations";
 
 export class OrganizationService {
   private orgRepo = new OrganizationRepository();
   private auditService = new AuditLogService();
+  private templateRepo = new IndustryTemplateRepository();
 
   /**
    * Creates a new organization:
@@ -50,10 +49,11 @@ export class OrganizationService {
 
     // Apply template (fire-and-forget pattern — org is created regardless)
     try {
-      if (templateId && templateId !== CUSTOM_TEMPLATE_ID) {
-        const template = getTemplateById(templateId);
+      if (templateId && templateId !== "custom") {
+        const template = await this.templateRepo.findById(templateId);
         if (template) {
-          await this.applyTemplate(org.id, template);
+          await this.orgRepo.update(org.id, { templateId });
+          await this.applyDatabaseTemplate(org.id, template);
         }
       } else if (customTemplate && validateCustomTemplate(customTemplate)) {
         await this.applyCustomTemplate(org.id, customTemplate);
@@ -153,12 +153,27 @@ export class OrganizationService {
   }
 
   /**
-   * Applies a static industry template to an organization.
-   * Creates departments and work rules from the template definition.
-   * Uses prisma directly — bypasses service-level tier checks.
+   * Applies a database-stored industry template to an organization.
+   * Creates departments and work rules from the template's JSON fields.
    */
-  private async applyTemplate(orgId: string, template: TemplateDefinition) {
-    for (const dept of template.departments) {
+  private async applyDatabaseTemplate(
+    orgId: string,
+    template: { departments: unknown; workRules: unknown }
+  ) {
+    const departments = template.departments as {
+      name: string;
+      description: string;
+      color: string;
+    }[];
+    const workRules = template.workRules as {
+      name: string;
+      type: string;
+      hoursThreshold?: number;
+      breakHours?: number;
+      maxHours?: number;
+    }[];
+
+    for (const dept of departments) {
       await prisma.department.create({
         data: {
           organizationId: orgId,
@@ -169,7 +184,7 @@ export class OrganizationService {
       });
     }
 
-    for (const rule of template.workRules) {
+    for (const rule of workRules) {
       await prisma.workRule.create({
         data: {
           organizationId: orgId,

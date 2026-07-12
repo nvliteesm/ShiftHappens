@@ -55,6 +55,7 @@ export class OrganizationRepository {
       description?: string | null;
       logo?: string | null;
       address?: string | null;
+      templateId?: string | null;
     }
   ) {
     return prisma.organization.update({

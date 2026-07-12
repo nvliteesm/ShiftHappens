@@ -1,8 +1,9 @@
 /**
  * Company Settings Page (Boundary Layer)
  *
- * Displays subscription plan info (tier, usage, features)
+ * Displays organization details (editable), subscription plan info,
  * and allows Company Admin to configure organization settings:
+ * - Organization name, industry, description
  * - Task allocation mode (manual, suggested, auto)
  * - Task acceptance mode (auto-accept or require confirmation)
  * - Break rules (hours worked before break, break duration)
@@ -25,6 +26,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+
+interface OrgDetails {
+  id: string;
+  name: string;
+  slug: string;
+  industry: string | null;
+  description: string | null;
+}
 
 interface Settings {
   allocationMode: string;
@@ -68,14 +77,32 @@ const FEATURE_LABELS: Record<string, string> = {
 const TIER_BADGE_STYLES: Record<string, string> = {
   free: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   pro: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-  enterprise: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
+  enterprise:
+    "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
 };
 
 export default function SettingsPage() {
   const params = useParams();
   const orgId = params.orgId as string;
+
+  // ─── Org details state ─────────────────────────────────────
+  const [orgDetails, setOrgDetails] = useState<OrgDetails | null>(null);
+  const [orgName, setOrgName] = useState("");
+  const [orgIndustry, setOrgIndustry] = useState("");
+  const [orgIndustryCustom, setOrgIndustryCustom] = useState("");
+  const [orgDescription, setOrgDescription] = useState("");
+  const [orgMessage, setOrgMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [orgLoading, setOrgLoading] = useState(false);
+  const [industryOptions, setIndustryOptions] = useState<string[]>([]);
+
+  // ─── Settings state ────────────────────────────────────────
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(
+    null
+  );
   const [allocationMode, setAllocationMode] = useState("manual");
   const [taskAcceptanceMode, setTaskAcceptanceMode] = useState("auto_accept");
   const [breakHoursWorked, setBreakHoursWorked] = useState(6);
@@ -96,9 +123,99 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    fetchOrgDetails();
     fetchSettings();
     fetchSubscription();
+    fetchIndustries();
   }, [orgId]);
+
+  // ─── Org details fetching + saving ─────────────────────────
+
+  async function fetchOrgDetails() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}`);
+      if (!res.ok) return;
+      const data: OrgDetails = await res.json();
+      setOrgDetails(data);
+      setOrgName(data.name);
+      setOrgDescription(data.description || "");
+
+      const industry = data.industry || "";
+      if (industryOptions.includes(industry)) {
+        setOrgIndustry(industry);
+        setOrgIndustryCustom("");
+      } else if (industry) {
+        setOrgIndustry("other");
+        setOrgIndustryCustom(industry);
+      } else {
+        setOrgIndustry("");
+        setOrgIndustryCustom("");
+      }
+    } catch {
+      // Non-critical on initial load
+    }
+  }
+
+  async function fetchIndustries() {
+    try {
+      const res = await fetch("/api/platform/templates");
+      if (res.ok) {
+        const data = await res.json();
+        setIndustryOptions(data.map((t: { name: string }) => t.name));
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+
+  async function onSaveOrgDetails() {
+    setOrgMessage(null);
+
+    const trimmedName = orgName.trim();
+    if (!trimmedName) {
+      setOrgMessage({ type: "error", text: "Organization name is required" });
+      return;
+    }
+
+    const industryValue =
+      orgIndustry === "other" ? orgIndustryCustom.trim() : orgIndustry;
+
+    setOrgLoading(true);
+
+    try {
+      const res = await fetch(`/api/organizations/${orgId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmedName,
+          industry: industryValue || "",
+          description: orgDescription.trim(),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        setOrgMessage({
+          type: "error",
+          text: result.error || "Failed to update organization",
+        });
+        return;
+      }
+
+      setOrgDetails(result);
+      setOrgMessage({
+        type: "success",
+        text: "Organization details updated",
+      });
+    } catch {
+      setOrgMessage({ type: "error", text: "Something went wrong" });
+    } finally {
+      setOrgLoading(false);
+    }
+  }
+
+  // ─── Settings fetching + saving ────────────────────────────
 
   async function fetchSettings() {
     try {
@@ -130,7 +247,7 @@ export default function SettingsPage() {
         setSubscription(data);
       }
     } catch {
-      // Non-critical — subscription display is informational
+      // Non-critical
     }
   }
 
@@ -139,7 +256,10 @@ export default function SettingsPage() {
     setMessage(null);
 
     if (opEnd <= opStart) {
-      setMessage({ type: "error", text: "Operating end hour must be after start hour" });
+      setMessage({
+        type: "error",
+        text: "Operating end hour must be after start hour",
+      });
       return;
     }
 
@@ -179,7 +299,6 @@ export default function SettingsPage() {
     }
   }
 
-  /** Returns color class for usage percentage */
   function usageColor(percentage: number | null): string {
     if (percentage === null) return "bg-primary";
     if (percentage >= 90) return "bg-red-500";
@@ -187,7 +306,6 @@ export default function SettingsPage() {
     return "bg-primary";
   }
 
-  /** Formats hour number to display string */
   function formatHour(h: number): string {
     if (h === 0 || h === 24) return "12 AM (midnight)";
     if (h === 12) return "12 PM (noon)";
@@ -201,7 +319,96 @@ export default function SettingsPage() {
     <div className="max-w-2xl space-y-6">
       <h2 className="text-2xl font-bold">Company Settings</h2>
 
-      {/* ─── Subscription Plan Section ─────────────────────────────── */}
+      {/* ─── Organization Details ───────────────────────────────── */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Organization Details</CardTitle>
+          <CardDescription>
+            Update your organization&apos;s name, industry, and description
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {orgMessage && (
+            <div
+              className={`rounded-md p-3 text-sm ${
+                orgMessage.type === "success"
+                  ? "bg-green-50 text-green-600 dark:bg-green-950 dark:text-green-300"
+                  : "bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-300"
+              }`}
+            >
+              {orgMessage.text}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="orgName">Organization Name</Label>
+            <Input
+              id="orgName"
+              value={orgName}
+              onChange={(e) => setOrgName(e.target.value)}
+              placeholder="e.g. Ocean Grill"
+              maxLength={100}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="orgIndustry">Industry</Label>
+            <select
+              id="orgIndustry"
+              className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+              value={orgIndustry}
+              onChange={(e) => {
+                setOrgIndustry(e.target.value);
+                if (e.target.value !== "other") setOrgIndustryCustom("");
+              }}
+            >
+              <option value="">Not specified</option>
+              {industryOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+              <option value="other">Other</option>
+            </select>
+            {orgIndustry === "other" && (
+              <Input
+                value={orgIndustryCustom}
+                onChange={(e) => setOrgIndustryCustom(e.target.value)}
+                placeholder="Enter your industry"
+                maxLength={100}
+                className="mt-2"
+              />
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="orgDescription">Description</Label>
+            <textarea
+              id="orgDescription"
+              className="w-full rounded-md border px-3 py-2 text-sm bg-background min-h-[80px] resize-y"
+              value={orgDescription}
+              onChange={(e) => setOrgDescription(e.target.value)}
+              placeholder="Brief description of your organization"
+              maxLength={500}
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              {orgDescription.length}/500 characters
+            </p>
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button
+            type="button"
+            onClick={onSaveOrgDetails}
+            disabled={orgLoading}
+          >
+            {orgLoading ? "Saving..." : "Save Details"}
+          </Button>
+        </CardFooter>
+      </Card>
+
+      {/* ─── Subscription Plan Section ─────────────────────────── */}
       {subscription && (
         <Card>
           <CardHeader>
@@ -222,7 +429,6 @@ export default function SettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
-            {/* Resource usage bars */}
             <div>
               <p className="text-sm font-medium mb-3">Resource Usage</p>
               <div className="space-y-3">
@@ -235,9 +441,10 @@ export default function SettingsPage() {
                       <div
                         className={`h-full rounded-full transition-all ${usageColor(usage.percentage)}`}
                         style={{
-                          width: usage.percentage !== null
-                            ? `${Math.min(usage.percentage, 100)}%`
-                            : "0%",
+                          width:
+                            usage.percentage !== null
+                              ? `${Math.min(usage.percentage, 100)}%`
+                              : "0%",
                         }}
                       />
                     </div>
@@ -253,20 +460,27 @@ export default function SettingsPage() {
 
             <Separator />
 
-            {/* Feature access */}
             <div>
               <p className="text-sm font-medium mb-3">Feature Access</p>
               <div className="grid grid-cols-2 gap-2">
-                {Object.entries(subscription.features).map(([key, available]) => (
-                  <div key={key} className="flex items-center gap-2 text-sm">
-                    <span className={available ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}>
-                      {available ? "✓" : "✗"}
-                    </span>
-                    <span className={available ? "" : "text-muted-foreground"}>
-                      {FEATURE_LABELS[key] || key}
-                    </span>
-                  </div>
-                ))}
+                {Object.entries(subscription.features).map(
+                  ([key, available]) => (
+                    <div key={key} className="flex items-center gap-2 text-sm">
+                      <span
+                        className={
+                          available
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {available ? "✓" : "✗"}
+                      </span>
+                      <span className={available ? "" : "text-muted-foreground"}>
+                        {FEATURE_LABELS[key] || key}
+                      </span>
+                    </div>
+                  )
+                )}
               </div>
             </div>
 
@@ -282,7 +496,7 @@ export default function SettingsPage() {
         </Card>
       )}
 
-      {/* ─── Settings Form ─────────────────────────────────────────── */}
+      {/* ─── Settings Form ─────────────────────────────────────── */}
       <form onSubmit={onSubmit}>
         <Card>
           <CardHeader>
@@ -418,7 +632,8 @@ export default function SettingsPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Currently set to {formatHour(opStart)} — {formatHour(opEnd)} ({opEnd - opStart} hours)
+              Currently set to {formatHour(opStart)} — {formatHour(opEnd)} (
+              {opEnd - opStart} hours)
             </p>
 
             <Separator />

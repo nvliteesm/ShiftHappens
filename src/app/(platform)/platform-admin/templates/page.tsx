@@ -225,6 +225,9 @@ export default function TemplatesPage() {
       if (data.workRules) setFormWorkRules(data.workRules);
       if (data.certifications) setFormCertifications(data.certifications);
 
+      if (data.name) setFormName(data.name);
+      setFormDescription(aiPrompt.trim().slice(0, 200));
+
       setSuccess("AI generated template content. Review and edit before saving.");
     } catch {
       setError("AI generation failed. Try again.");
@@ -237,6 +240,25 @@ export default function TemplatesPage() {
 
   async function handleSave() {
     setError(null);
+
+    // Validate required fields
+    if (!formName.trim()) {
+      setError("Template name is required");
+      return;
+    }
+    if (!formDescription.trim()) {
+      setError("Template description is required");
+      return;
+    }
+    if (formDepartments.length === 0) {
+      setError("At least one department is required");
+      return;
+    }
+    if (formDepartments.some((d) => !d.name.trim())) {
+      setError("All departments must have a name");
+      return;
+    }
+
     setFormSaving(true);
 
     const payload = {

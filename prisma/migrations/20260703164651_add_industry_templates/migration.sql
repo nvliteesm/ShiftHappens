@@ -1,3 +1,9 @@
+-- NOTE: This migration originally re-declared changes that 20260608084819_add_platform_admin
+-- already makes (TaskAssignment.rejectionNotes, User.isPlatformAdmin, the AuditLog table with
+-- its indexes and foreign keys). Replaying the chain on a fresh database therefore failed with
+-- 'column "rejectionNotes" already exists'. Those duplicated statements have been removed so
+-- each change is owned by exactly one migration; everything below is unique to this migration.
+
 -- AlterTable
 ALTER TABLE "CompanySettings" ADD COLUMN     "operatingHoursEnd" INTEGER NOT NULL DEFAULT 22,
 ADD COLUMN     "operatingHoursStart" INTEGER NOT NULL DEFAULT 6;
@@ -9,27 +15,6 @@ ADD COLUMN     "employmentType" TEXT;
 -- AlterTable
 ALTER TABLE "Organization" ADD COLUMN     "subscriptionTier" TEXT NOT NULL DEFAULT 'free',
 ADD COLUMN     "templateId" TEXT;
-
--- AlterTable
-ALTER TABLE "TaskAssignment" ADD COLUMN     "rejectionNotes" TEXT;
-
--- AlterTable
-ALTER TABLE "User" ADD COLUMN     "isPlatformAdmin" BOOLEAN NOT NULL DEFAULT false;
-
--- CreateTable
-CREATE TABLE "AuditLog" (
-    "id" TEXT NOT NULL,
-    "organizationId" TEXT NOT NULL,
-    "userId" TEXT,
-    "action" TEXT NOT NULL,
-    "entityType" TEXT NOT NULL,
-    "entityId" TEXT,
-    "details" JSONB,
-    "ipAddress" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
-);
 
 -- CreateTable
 CREATE TABLE "Notification" (
@@ -82,15 +67,6 @@ CREATE TABLE "IndustryTemplate" (
 );
 
 -- CreateIndex
-CREATE INDEX "AuditLog_organizationId_createdAt_idx" ON "AuditLog"("organizationId", "createdAt");
-
--- CreateIndex
-CREATE INDEX "AuditLog_action_idx" ON "AuditLog"("action");
-
--- CreateIndex
-CREATE INDEX "AuditLog_entityType_entityId_idx" ON "AuditLog"("entityType", "entityId");
-
--- CreateIndex
 CREATE INDEX "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead");
 
 -- CreateIndex
@@ -107,12 +83,6 @@ CREATE UNIQUE INDEX "IndustryTemplate_name_key" ON "IndustryTemplate"("name");
 
 -- AddForeignKey
 ALTER TABLE "Membership" ADD CONSTRAINT "Membership_customRoleId_fkey" FOREIGN KEY ("customRoleId") REFERENCES "Role"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

@@ -634,4 +634,157 @@ describe("ReportingService", () => {
       expect(trends).toHaveLength(0);
     });
   });
+
+  // ─── Company-admin dashboard summaries (PRD 3.15) ───────────────────────
+
+  describe("getTaskSummary", () => {
+    it("counts tasks by task status", async () => {
+      await createTaskAndAssignment({ title: "Open 1" });
+      await createTaskAndAssignment({ title: "Open 2" });
+      await createTaskAndAssignment({ title: "Done", taskStatus: "completed" });
+      await createTaskAndAssignment({ title: "Gone", taskStatus: "cancelled" });
+
+      const summary = await reportingService.getTaskSummary(orgId);
+
+      expect(summary.total).toBe(4);
+      expect(summary.open).toBe(2);
+      expect(summary.completed).toBe(1);
+      expect(summary.cancelled).toBe(1);
+    });
+
+    it("returns zeros for an org with no tasks", async () => {
+      const summary = await reportingService.getTaskSummary(orgId);
+      expect(summary.total).toBe(0);
+      expect(summary.open).toBe(0);
+    });
+  });
+
+  describe("getCertificationSummary", () => {
+    it("counts certifications by status, expiring soon, and expired", async () => {
+      const soon = new Date();
+      soon.setDate(soon.getDate() + 10); // within the 30-day window
+      const past = new Date();
+      past.setDate(past.getDate() - 5); // already lapsed
+      const farOff = new Date();
+      farOff.setDate(farOff.getDate() + 200);
+
+      await prisma.certification.createMany({
+        data: [
+          {
+            membershipId: staffMembershipId,
+            name: "Food Safety",
+            issuedDate: new Date(),
+            expiryDate: farOff,
+            status: "verified",
+          },
+          {
+            membershipId: staffMembershipId,
+            name: "First Aid",
+            issuedDate: new Date(),
+            expiryDate: soon,
+            status: "verified",
+          },
+          {
+            membershipId: staffMembershipId,
+            name: "Forklift",
+            issuedDate: new Date(),
+            expiryDate: past,
+            status: "verified",
+          },
+          {
+            membershipId: staffMembershipId,
+            name: "Pending one",
+            issuedDate: new Date(),
+            status: "pending",
+          },
+          {
+            membershipId: staffMembershipId,
+            name: "Rejected one",
+            issuedDate: new Date(),
+            status: "rejected",
+          },
+        ],
+      });
+
+      const summary = await reportingService.getCertificationSummary(orgId);
+
+      expect(summary.verified).toBe(3);
+      expect(summary.pending).toBe(1);
+      expect(summary.rejected).toBe(1);
+      expect(summary.total).toBe(5);
+      expect(summary.expiringSoon).toBe(1); // only "First Aid"
+      expect(summary.expired).toBe(1); // only "Forklift"
+    });
+  });
+
+  describe("getCoverageSummary", () => {
+    it("classifies upcoming tasks as fully staffed, understaffed, or unassigned", async () => {
+      const inTwoDays = new Date();
+      inTwoDays.setDate(inTwoDays.getDate() + 2);
+      const end = new Date(inTwoDays);
+      end.setHours(end.getHours() + 4);
+
+      const staff2 = await createStaff("Staff Two", "staff2@example.com");
+
+      // Fully staffed: needs 1, has 1
+      await createTaskAndAssignment({
+        title: "Covered",
+        membershipId: staffMembershipId,
+        assignmentStatus: "accepted",
+        requiredHeadcount: 1,
+        scheduledStart: inTwoDays,
+        scheduledEnd: end,
+      });
+
+      // Understaffed: needs 2, has 1
+      await createTaskAndAssignment({
+        title: "Short",
+        membershipId: staff2,
+        assignmentStatus: "accepted",
+        requiredHeadcount: 2,
+        scheduledStart: inTwoDays,
+        scheduledEnd: end,
+      });
+
+      // Unassigned: needs 1, has 0
+      await createTaskAndAssignment({
+        title: "Empty",
+        requiredHeadcount: 1,
+        scheduledStart: inTwoDays,
+        scheduledEnd: end,
+      });
+
+      const summary = await reportingService.getCoverageSummary(orgId);
+
+      expect(summary.upcomingTasks).toBe(3);
+      expect(summary.fullyStaffed).toBe(1);
+      expect(summary.understaffed).toBe(1);
+      expect(summary.unassigned).toBe(1);
+      // Filled 2 of 4 required slots (1/1 + 1/2 + 0/1)
+      expect(summary.coveragePercent).toBe(50);
+    });
+
+    it("reports 100% coverage when there are no upcoming tasks", async () => {
+      const summary = await reportingService.getCoverageSummary(orgId);
+      expect(summary.upcomingTasks).toBe(0);
+      expect(summary.coveragePercent).toBe(100);
+    });
+
+    it("ignores tasks outside the 7-day window", async () => {
+      const farOut = new Date();
+      farOut.setDate(farOut.getDate() + 30);
+      const end = new Date(farOut);
+      end.setHours(end.getHours() + 4);
+
+      await createTaskAndAssignment({
+        title: "Next month",
+        requiredHeadcount: 1,
+        scheduledStart: farOut,
+        scheduledEnd: end,
+      });
+
+      const summary = await reportingService.getCoverageSummary(orgId);
+      expect(summary.upcomingTasks).toBe(0);
+    });
+  });
 });

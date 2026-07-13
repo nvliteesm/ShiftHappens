@@ -19,6 +19,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  parseRecurrencePattern,
+  describeRecurrence,
+  type RecurrenceFreq,
+} from "@/lib/recurrence";
+
+const WEEKDAYS = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" },
+];
+
+/** Readable summary of a stored recurrence pattern, or null if unreadable. */
+function describeRecurrenceOf(raw: string | null): string | null {
+  const pattern = parseRecurrencePattern(raw);
+  return pattern ? describeRecurrence(pattern) : null;
+}
 
 interface Task {
   id: string;
@@ -29,6 +50,10 @@ interface Task {
   requiredHeadcount: number;
   scheduledStart: string | null;
   scheduledEnd: string | null;
+  isRecurring: boolean;
+  recurringPattern: string | null;
+  /** Set on tasks generated from a recurring series. */
+  parentTaskId: string | null;
   department: { id: string; name: string } | null;
   createdBy: { id: string; name: string | null };
   assignments: {
@@ -60,6 +85,11 @@ export default function TasksPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  // Recurrence controls on the create form ("" = does not repeat)
+  const [repeatFreq, setRepeatFreq] = useState<"" | RecurrenceFreq>("");
+  const [repeatInterval, setRepeatInterval] = useState(1);
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
+  const [repeatUntil, setRepeatUntil] = useState("");
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   // membershipId → reason, when a manager overrides an ineligible staff member
@@ -242,6 +272,27 @@ export default function TasksPage() {
     if (start) taskData.scheduledStart = new Date(start).toISOString();
     if (end) taskData.scheduledEnd = new Date(end).toISOString();
 
+    // Recurrence — the schedule defines the time-of-day every occurrence inherits,
+    // so a repeating task must have one.
+    if (repeatFreq) {
+      if (!start || !end) {
+        setError("A repeating task needs a start and end time");
+        return;
+      }
+
+      const pattern: Record<string, unknown> = {
+        freq: repeatFreq,
+        interval: repeatInterval || 1,
+      };
+      if (repeatFreq === "weekly" && repeatDays.length > 0) {
+        pattern.days = [...repeatDays].sort((a, b) => a - b);
+      }
+      if (repeatUntil) pattern.until = repeatUntil;
+
+      taskData.isRecurring = true;
+      taskData.recurringPattern = JSON.stringify(pattern);
+    }
+
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`, {
         method: "POST",
@@ -257,8 +308,16 @@ export default function TasksPage() {
       }
 
       setShowCreate(false);
-      setSuccess("Task created successfully");
+      setSuccess(
+        repeatFreq
+          ? "Recurring task created — upcoming occurrences generated"
+          : "Task created successfully"
+      );
       (event.target as HTMLFormElement).reset();
+      setRepeatFreq("");
+      setRepeatInterval(1);
+      setRepeatDays([]);
+      setRepeatUntil("");
       fetchTasks();
     } catch {
       setError("Something went wrong");
@@ -648,6 +707,110 @@ export default function TasksPage() {
                   />
                 </div>
               </div>
+
+              {/* ─── Recurrence ─────────────────────────────────── */}
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-2">
+                  <Label htmlFor="repeatFreq">Repeats</Label>
+                  <select
+                    id="repeatFreq"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={repeatFreq}
+                    onChange={(e) =>
+                      setRepeatFreq(e.target.value as "" | RecurrenceFreq)
+                    }
+                  >
+                    <option value="">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                {repeatFreq && (
+                  <>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Every</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={repeatInterval}
+                        onChange={(e) =>
+                          setRepeatInterval(Number(e.target.value) || 1)
+                        }
+                        className="h-8 w-20"
+                      />
+                      <span className="text-muted-foreground">
+                        {repeatFreq === "daily"
+                          ? repeatInterval > 1 ? "days" : "day"
+                          : repeatFreq === "weekly"
+                            ? repeatInterval > 1 ? "weeks" : "week"
+                            : repeatInterval > 1 ? "months" : "month"}
+                      </span>
+                    </div>
+
+                    {repeatFreq === "weekly" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          On these days (defaults to the start day)
+                        </Label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {WEEKDAYS.map((d) => {
+                            const on = repeatDays.includes(d.value);
+                            return (
+                              <button
+                                key={d.value}
+                                type="button"
+                                onClick={() =>
+                                  setRepeatDays((prev) =>
+                                    prev.includes(d.value)
+                                      ? prev.filter((x) => x !== d.value)
+                                      : [...prev, d.value]
+                                  )
+                                }
+                                className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                                  on
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "hover:bg-muted"
+                                }`}
+                              >
+                                {d.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {repeatFreq === "monthly" && (
+                      <p className="text-xs text-muted-foreground">
+                        Repeats on the same day of the month as the start date.
+                        Months without that day are skipped.
+                      </p>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="repeatUntil" className="text-xs text-muted-foreground">
+                        Until (optional)
+                      </Label>
+                      <Input
+                        id="repeatUntil"
+                        type="date"
+                        value={repeatUntil}
+                        onChange={(e) => setRepeatUntil(e.target.value)}
+                        className="h-8"
+                      />
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Occurrences are created about 2 weeks ahead and topped up
+                      over time, so a long series won&apos;t flood your task list.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <Button type="submit">Create Task</Button>
             </CardContent>
           </form>
@@ -672,6 +835,21 @@ export default function TasksPage() {
                       <span className={`rounded-full px-2 py-0.5 text-xs ${priorityColor(task.priority)}`}>
                         {task.priority}
                       </span>
+                      {task.isRecurring && (
+                        <span
+                          className="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                          title={
+                            describeRecurrenceOf(task.recurringPattern) ?? undefined
+                          }
+                        >
+                          ↻ {describeRecurrenceOf(task.recurringPattern) ?? "repeats"}
+                        </span>
+                      )}
+                      {task.parentTaskId && (
+                        <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950/50 dark:text-violet-400">
+                          ↻ from series
+                        </span>
+                      )}
                     </CardTitle>
                     <CardDescription>
                       {task.department?.name || "No department"}

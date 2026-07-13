@@ -959,4 +959,115 @@ export class ReportingRepository {
       },
     });
   }
+
+  // ─── Company-admin dashboard summaries ────────────────────────────────────
+
+  /** Task counts grouped by task status (open, in_progress, completed, cancelled). */
+  async countTasksByStatus(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<{ status: string; count: number }[]> {
+    const grouped = await prisma.task.groupBy({
+      by: ["status"],
+      where: {
+        organizationId,
+        ...(departmentIds?.length
+          ? { departmentId: { in: departmentIds } }
+          : {}),
+      },
+      _count: { _all: true },
+    });
+
+    return grouped.map((g) => ({ status: g.status, count: g._count._all }));
+  }
+
+  /**
+   * Org-wide certification counts: by verification status, plus how many
+   * verified certs are expiring soon or have already lapsed.
+   */
+  async getCertificationCounts(
+    organizationId: string,
+    expiringWithinDays = 30
+  ): Promise<{
+    verified: number;
+    pending: number;
+    rejected: number;
+    expiringSoon: number;
+    expired: number;
+  }> {
+    const now = new Date();
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + expiringWithinDays);
+
+    const scope = { membership: { organizationId } };
+
+    const [verified, pending, rejected, expiringSoon, expired] =
+      await Promise.all([
+        prisma.certification.count({
+          where: { ...scope, status: "verified" },
+        }),
+        prisma.certification.count({
+          where: { ...scope, status: "pending" },
+        }),
+        prisma.certification.count({
+          where: { ...scope, status: "rejected" },
+        }),
+        prisma.certification.count({
+          where: {
+            ...scope,
+            status: "verified",
+            expiryDate: { gte: now, lte: cutoff },
+          },
+        }),
+        prisma.certification.count({
+          where: {
+            ...scope,
+            status: "verified",
+            expiryDate: { lt: now },
+          },
+        }),
+      ]);
+
+    return { verified, pending, rejected, expiringSoon, expired };
+  }
+
+  /**
+   * Upcoming tasks with their required headcount and how many slots are
+   * actually taken — the raw material for the coverage summary.
+   * Only slot-occupying assignments count (pending/accepted/withdrawal_requested).
+   */
+  async getUpcomingCoverage(
+    organizationId: string,
+    from: Date,
+    to: Date,
+    departmentIds?: string[]
+  ): Promise<{ requiredHeadcount: number; assignedCount: number }[]> {
+    const tasks = await prisma.task.findMany({
+      where: {
+        organizationId,
+        status: { notIn: ["completed", "cancelled"] },
+        scheduledStart: { gte: from, lte: to },
+        ...(departmentIds?.length
+          ? { departmentId: { in: departmentIds } }
+          : {}),
+      },
+      select: {
+        requiredHeadcount: true,
+        _count: {
+          select: {
+            assignments: {
+              where: {
+                status: { in: ["pending", "accepted", "withdrawal_requested"] },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return tasks.map((t) => ({
+      requiredHeadcount: t.requiredHeadcount,
+      assignedCount: t._count.assignments,
+    }));
+  }
 }

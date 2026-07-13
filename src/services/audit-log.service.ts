@@ -18,6 +18,7 @@ const ACTIONS = {
   TASK_DELETED: "task.deleted",
   TASK_ASSIGNED: "task.assigned",
   TASK_UNASSIGNED: "task.unassigned",
+  RECURRING_TASKS_GENERATED: "task.recurring_generated",
   // Assignments
   ASSIGNMENT_ACCEPTED: "assignment.accepted",
   ASSIGNMENT_REJECTED: "assignment.rejected",

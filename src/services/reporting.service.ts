@@ -41,6 +41,37 @@ export interface NeedsAttentionItem {
 }
 
 /** Three key metric cards for dashboard header */
+/** Task counts by TASK status (not assignment status) — PRD 3.15 */
+export interface TaskSummary {
+  total: number;
+  open: number;
+  in_progress: number;
+  completed: number;
+  cancelled: number;
+}
+
+/** Org-wide certification health — PRD 3.15 */
+export interface CertificationSummary {
+  total: number;
+  verified: number;
+  pending: number;
+  rejected: number;
+  /** Verified certs expiring within 30 days. */
+  expiringSoon: number;
+  /** Verified certs whose expiry has already passed. */
+  expired: number;
+}
+
+/** Staffing coverage across the next 7 days — PRD 3.15 */
+export interface CoverageSummary {
+  upcomingTasks: number;
+  fullyStaffed: number;
+  understaffed: number;
+  unassigned: number;
+  /** Filled slots / required slots, capped at 100. */
+  coveragePercent: number;
+}
+
 export interface KeyMetrics {
   assignmentPipeline: {
     total: number;
@@ -959,5 +990,102 @@ export class ReportingService {
    */
   private formatLocalDate(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // ─── Company-admin dashboard summaries (PRD 3.15) ─────────────────────────
+
+  /**
+   * Task summary — counts by TASK status (distinct from the assignment
+   * pipeline in key metrics, which counts assignments).
+   */
+  async getTaskSummary(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<TaskSummary> {
+    const rows = await this.reportingRepo.countTasksByStatus(
+      organizationId,
+      departmentIds
+    );
+
+    const summary: TaskSummary = {
+      total: 0,
+      open: 0,
+      in_progress: 0,
+      completed: 0,
+      cancelled: 0,
+    };
+
+    for (const row of rows) {
+      summary.total += row.count;
+      if (row.status in summary) {
+        summary[row.status as keyof Omit<TaskSummary, "total">] = row.count;
+      }
+    }
+
+    return summary;
+  }
+
+  /** Certification summary — verification backlog and expiry health. */
+  async getCertificationSummary(
+    organizationId: string
+  ): Promise<CertificationSummary> {
+    const counts = await this.reportingRepo.getCertificationCounts(
+      organizationId,
+      30
+    );
+    return {
+      ...counts,
+      total: counts.verified + counts.pending + counts.rejected,
+    };
+  }
+
+  /**
+   * Coverage summary for the next 7 days: how many upcoming tasks are fully
+   * staffed vs short vs completely unassigned, plus an overall coverage %
+   * (filled slots / required slots).
+   */
+  async getCoverageSummary(
+    organizationId: string,
+    departmentIds?: string[]
+  ): Promise<CoverageSummary> {
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 7);
+
+    const tasks = await this.reportingRepo.getUpcomingCoverage(
+      organizationId,
+      from,
+      to,
+      departmentIds
+    );
+
+    let fullyStaffed = 0;
+    let understaffed = 0;
+    let unassigned = 0;
+    let requiredSlots = 0;
+    let filledSlots = 0;
+
+    for (const t of tasks) {
+      const required = Math.max(1, t.requiredHeadcount);
+      requiredSlots += required;
+      // A task can't be "more than filled" — cap so over-assignment can't
+      // push coverage above 100%.
+      filledSlots += Math.min(t.assignedCount, required);
+
+      if (t.assignedCount === 0) unassigned++;
+      else if (t.assignedCount < required) understaffed++;
+      else fullyStaffed++;
+    }
+
+    return {
+      upcomingTasks: tasks.length,
+      fullyStaffed,
+      understaffed,
+      unassigned,
+      coveragePercent:
+        requiredSlots === 0
+          ? 100
+          : Math.round((filledSlots / requiredSlots) * 100),
+    };
   }
 }

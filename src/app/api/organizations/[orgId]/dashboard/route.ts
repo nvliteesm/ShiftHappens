@@ -71,7 +71,7 @@ export async function GET(
       );
     }
 
-    // Parallel fetch — 6 shared sections for admin and manager
+    // Parallel fetch — 8 shared sections for admin and manager
     const [
       needsAttentionResult,
       keyMetricsResult,
@@ -79,6 +79,8 @@ export async function GET(
       completionChartResult,
       staffUtilizationResult,
       rejectionTrendsResult,
+      taskSummaryResult,
+      coverageSummaryResult,
     ] = await Promise.allSettled([
       reportingService.getNeedsAttention(orgId, departmentIds),
       reportingService.getKeyMetrics(orgId, departmentIds),
@@ -86,6 +88,8 @@ export async function GET(
       reportingService.getCompletionChart(orgId, departmentIds),
       reportingService.getStaffUtilization(orgId, departmentIds),
       reportingService.getRejectionTrends(orgId, departmentIds),
+      reportingService.getTaskSummary(orgId, departmentIds),
+      reportingService.getCoverageSummary(orgId, departmentIds),
     ]);
 
     const response: Record<string, unknown> = {
@@ -96,6 +100,8 @@ export async function GET(
       completionChart: extractResult(completionChartResult, "CompletionChart"),
       staffUtilization: extractResult(staffUtilizationResult, "StaffUtilization"),
       rejectionTrends: extractResult(rejectionTrendsResult, "RejectionTrends"),
+      taskSummary: extractResult(taskSummaryResult, "TaskSummary"),
+      coverageSummary: extractResult(coverageSummaryResult, "CoverageSummary"),
     };
 
     // Role-specific section (resilient — failure doesn't affect shared sections)
@@ -106,6 +112,15 @@ export async function GET(
       } catch (error) {
         console.error("[Dashboard DepartmentWorkload Error]", error);
         response.departmentWorkload = null;
+      }
+
+      // Certifications are org-wide (not department-scoped), so admin only.
+      try {
+        response.certificationSummary =
+          await reportingService.getCertificationSummary(orgId);
+      } catch (error) {
+        console.error("[Dashboard CertificationSummary Error]", error);
+        response.certificationSummary = null;
       }
     } else if (role === "manager" && departmentIds?.length) {
       try {

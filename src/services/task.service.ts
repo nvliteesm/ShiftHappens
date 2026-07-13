@@ -19,9 +19,15 @@ import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification
 import { SubscriptionService } from "@/services/subscription.service";
 import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
+import {
+  RecurringTaskService,
+  DEFAULT_HORIZON_DAYS,
+} from "@/services/recurring-task.service";
+import { parseRecurrencePattern } from "@/lib/recurrence";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
+  private recurringTaskService = new RecurringTaskService();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
@@ -43,6 +49,17 @@ export class TaskService {
       const end = new Date(input.scheduledEnd);
       if (end <= start) {
         throw new Error("End time must be after start time");
+      }
+    }
+
+    // A recurring series needs a schedule (it defines the time-of-day and
+    // duration every occurrence inherits) and a pattern we can actually read.
+    if (input.isRecurring) {
+      if (!input.scheduledStart || !input.scheduledEnd) {
+        throw new Error("A recurring task must have a start and end time");
+      }
+      if (!parseRecurrencePattern(input.recurringPattern ?? null)) {
+        throw new Error("Invalid recurrence pattern");
       }
     }
 
@@ -68,6 +85,23 @@ export class TaskService {
       entityId: task.id,
       details: { title: task.title, department: task.departmentId },
     });
+
+    // Materialise the series' upcoming occurrences straight away, so a new
+    // recurring task immediately shows its future shifts. Awaited (not
+    // fire-and-forget) so the caller's task list reflects them on refetch.
+    if (task.isRecurring) {
+      try {
+        await this.recurringTaskService.generateForOrganization(
+          orgId,
+          DEFAULT_HORIZON_DAYS,
+          userId
+        );
+      } catch (error) {
+        // The series exists — a failed expansion can be retried by the
+        // scheduled run, so never fail the create.
+        console.error("[Recurring Generation Error]", error);
+      }
+    }
 
     return task;
   }

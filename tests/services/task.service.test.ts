@@ -8,6 +8,7 @@ import { TaskService } from "@/services/task.service";
 import { OrganizationRepository } from "@/repositories/organization.repository";
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { UserRepository } from "@/repositories/user.repository";
+import { NOTIFICATION_TYPES } from "@/services/notification.service";
 import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
@@ -469,4 +470,110 @@ describe("TaskService", () => {
       expect(assignments[0].task.title).toBe("My task");
     });
   });
+
+  describe("assignment notifications", () => {
+    it("notifies staff when they are assigned", async () => {
+      const task = await taskService.create({ title: "Night shift" }, orgId, userId);
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      const notes = await waitForNotifications(
+        staffUserId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED
+      );
+      expect(notes).toHaveLength(1);
+    });
+
+    it("notifies staff when they are unassigned", async () => {
+      const task = await taskService.create({ title: "Night shift" }, orgId, userId);
+      const [assignment] = await taskService.assignStaff(
+        task.id,
+        orgId,
+        [staffMembershipId],
+        userId
+      );
+
+      await taskService.cancelAssignment(assignment.id, userId);
+
+      const notes = await waitForNotifications(
+        staffUserId,
+        NOTIFICATION_TYPES.TASK_UNASSIGNED
+      );
+      expect(notes).toHaveLength(1);
+    });
+
+    it("notifies assigned staff when the task is deleted", async () => {
+      const task = await taskService.create({ title: "Night shift" }, orgId, userId);
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      await taskService.delete(task.id, orgId);
+
+      const notes = await waitForNotifications(
+        staffUserId,
+        NOTIFICATION_TYPES.TASK_CANCELLED
+      );
+      expect(notes).toHaveLength(1);
+    });
+
+    it("notifies assigned staff when the task is rescheduled", async () => {
+      const task = await taskService.create(
+        {
+          title: "Night shift",
+          scheduledStart: "2026-06-01T08:00:00.000Z",
+          scheduledEnd: "2026-06-01T12:00:00.000Z",
+        },
+        orgId,
+        userId
+      );
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      await taskService.update(task.id, orgId, {
+        scheduledStart: "2026-06-02T08:00:00.000Z",
+        scheduledEnd: "2026-06-02T12:00:00.000Z",
+      });
+
+      const notes = await waitForNotifications(
+        staffUserId,
+        NOTIFICATION_TYPES.TASK_RESCHEDULED
+      );
+      expect(notes).toHaveLength(1);
+    });
+
+    it("suppresses assignment notifications when the org disables them", async () => {
+      await prisma.companySettings.update({
+        where: { organizationId: orgId },
+        data: {
+          notificationPreferences: JSON.stringify({ taskAssignment: false }),
+        },
+      });
+
+      const task = await taskService.create({ title: "Night shift" }, orgId, userId);
+      await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
+
+      // Give the fire-and-forget notification a chance to land, then assert none.
+      await new Promise((r) => setTimeout(r, 300));
+      const notes = await prisma.notification.findMany({
+        where: { userId: staffUserId, type: NOTIFICATION_TYPES.TASK_ASSIGNED },
+      });
+      expect(notes).toHaveLength(0);
+    });
+  });
 });
+
+/**
+ * Notifications are fire-and-forget (not awaited by the service), so polling
+ * beats a fixed sleep — fast when it lands, tolerant when the DB is slow.
+ */
+async function waitForNotifications(
+  userId: string,
+  type: string,
+  timeoutMs = 3000
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const notes = await prisma.notification.findMany({
+      where: { userId, type },
+    });
+    if (notes.length > 0 || Date.now() > deadline) return notes;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}

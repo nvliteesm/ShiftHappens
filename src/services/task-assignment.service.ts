@@ -18,11 +18,13 @@
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
+import { HourAlertService } from "@/services/hour-alert.service";
 
 export class TaskAssignmentService {
   private assignmentRepo = new TaskAssignmentRepository();
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
+  private hourAlertService = new HourAlertService();
 
   /**
    * Accepts a pending task assignment.
@@ -171,6 +173,13 @@ export class TaskAssignmentService {
       entityId: assignmentId,
       details: { taskTitle: assignment.task.title },
     });
+
+    // Worked hours just changed — alert staff/managers if a limit is near (US-72, US-85).
+    // Fire-and-forget: never blocks or fails the clock-out.
+    void this.hourAlertService.checkAndAlertMember(
+      membershipId,
+      assignment.task.organizationId
+    );
 
     return result;
   }

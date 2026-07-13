@@ -104,6 +104,16 @@ export class TaskService {
       }
     }
 
+    // Did the schedule actually move? Compare instants, not raw strings —
+    // the client sends datetime-local values that differ textually from ISO.
+    const toTime = (v: string | null) => (v ? new Date(v).getTime() : null);
+    const scheduleChanged =
+      toTime(newStart) !== (task.scheduledStart?.getTime() ?? null) ||
+      toTime(newEnd) !== (task.scheduledEnd?.getTime() ?? null);
+    const nowCancelled =
+      input.status === "cancelled" && task.status !== "cancelled";
+    const affectedUserIds = this.stillAssignedUserIds(task);
+
     const updated = await this.taskRepo.update(taskId, {
       title: input.title,
       description: input.description,
@@ -123,12 +133,96 @@ export class TaskService {
       details: input,
     });
 
+    if (nowCancelled) {
+      void this.notificationService.notifyManyIfEnabled(
+        orgId,
+        affectedUserIds,
+        NOTIFICATION_TYPES.TASK_CANCELLED,
+        "Task cancelled",
+        `"${updated.title}" was cancelled — you're no longer scheduled for it.`,
+        "task",
+        taskId
+      );
+    } else if (scheduleChanged) {
+      void this.notificationService.notifyManyIfEnabled(
+        orgId,
+        affectedUserIds,
+        NOTIFICATION_TYPES.TASK_RESCHEDULED,
+        "Task rescheduled",
+        `"${updated.title}" was rescheduled. Check your tasks for the new time.`,
+        "task",
+        taskId
+      );
+
+      // The new time may have made assigned staff ineligible (conflict, hour
+      // limit, unavailable) — let managers know. Fire-and-forget.
+      void this.notifyManagersOfIneligibleAssignees(taskId, orgId, updated.title);
+    }
+
     return updated;
+  }
+
+  /**
+   * Re-runs eligibility for a task and alerts managers about any staff who are
+   * STILL ASSIGNED but no longer eligible (e.g. after a reschedule).
+   * Fire-and-forget — never blocks or fails the update.
+   */
+  private async notifyManagersOfIneligibleAssignees(
+    taskId: string,
+    orgId: string,
+    taskTitle: string
+  ) {
+    try {
+      const task = await this.taskRepo.findById(taskId);
+      if (!task) return;
+
+      const assignedIds = new Set(
+        task.assignments
+          .filter((a) =>
+            ["pending", "accepted", "withdrawal_requested"].includes(a.status)
+          )
+          .map((a) => a.membershipId)
+      );
+      if (assignedIds.size === 0) return;
+
+      const eligibility = await this.eligibilityService.checkEligibilityForTask(
+        taskId,
+        orgId
+      );
+
+      const nowIneligible = eligibility.filter(
+        (e) => assignedIds.has(e.membershipId) && !e.eligible
+      );
+      if (nowIneligible.length === 0) return;
+
+      const managers = (await this.membershipRepo.findByOrgId(orgId)).filter(
+        (m) =>
+          m.status === "active" &&
+          ["company_admin", "manager"].includes(m.role)
+      );
+      if (managers.length === 0) return;
+
+      const names = nowIneligible.map((e) => e.memberName).join(", ");
+      await this.notificationService.notifyManyIfEnabled(
+        orgId,
+        managers.map((m) => m.userId),
+        NOTIFICATION_TYPES.STAFF_INELIGIBLE,
+        "Assigned staff no longer eligible",
+        `After the change to "${taskTitle}", these assigned staff are no longer eligible: ${names}.`,
+        "task",
+        taskId
+      );
+    } catch (error) {
+      console.error("[Ineligible Assignee Check Error]", error);
+    }
   }
 
   async delete(taskId: string, orgId: string) {
     const task = await this.taskRepo.findById(taskId);
     if (!task) throw new Error("Task not found");
+
+    // Capture who to tell before the task (and its assignments) are gone.
+    const affectedUserIds = this.stillAssignedUserIds(task);
 
     await this.taskRepo.delete(taskId);
 
@@ -139,6 +233,32 @@ export class TaskService {
       entityId: taskId,
       details: { title: task.title },
     });
+
+    void this.notificationService.notifyManyIfEnabled(
+      orgId,
+      affectedUserIds,
+      NOTIFICATION_TYPES.TASK_CANCELLED,
+      "Task cancelled",
+      `"${task.title}" was cancelled — you're no longer scheduled for it.`,
+      "task",
+      taskId
+    );
+  }
+
+  /**
+   * User IDs of staff still holding a slot on a task (i.e. would be affected
+   * if it's cancelled or rescheduled). Excludes rejected/withdrawn/finished.
+   */
+  private stillAssignedUserIds(task: {
+    assignments: {
+      status: string;
+      membership: { userId: string } | null;
+    }[];
+  }): string[] {
+    const ACTIVE = ["pending", "accepted", "withdrawal_requested"];
+    return task.assignments
+      .filter((a) => ACTIVE.includes(a.status) && a.membership?.userId)
+      .map((a) => a.membership!.userId);
   }
 
   /**
@@ -218,7 +338,8 @@ export class TaskService {
     for (const membId of membershipIds) {
       const membership = await this.membershipRepo.findById(membId);
       if (membership) {
-        void this.notificationService.notify(
+        void this.notificationService.notifyIfEnabled(
+          organizationId,
           membership.userId,
           NOTIFICATION_TYPES.TASK_ASSIGNED,
           "New task assignment",
@@ -255,6 +376,19 @@ export class TaskService {
       entityType: "assignment",
       entityId: assignmentId,
     });
+
+    // Tell the staff member they were removed from the task.
+    if (assignment.membership?.userId) {
+      void this.notificationService.notifyIfEnabled(
+        assignment.task.organizationId,
+        assignment.membership.userId,
+        NOTIFICATION_TYPES.TASK_UNASSIGNED,
+        "Removed from a task",
+        `You're no longer assigned to "${assignment.task.title}"`,
+        "task",
+        assignment.task.id
+      );
+    }
 
     // Smart-swap: check if task is now understaffed and suggest replacement
     void this.suggestReplacement(

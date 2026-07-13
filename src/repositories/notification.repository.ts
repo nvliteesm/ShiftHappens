@@ -73,4 +73,26 @@ export class NotificationRepository {
   async findById(id: string) {
     return prisma.notification.findUnique({ where: { id } });
   }
+
+  /**
+   * Checks whether a notification of this type already exists for the user
+   * (optionally about a specific entity) since a given time.
+   * Used to avoid re-sending the same alert on every clock-out.
+   */
+  async existsSince(
+    userId: string,
+    type: string,
+    since: Date,
+    entityId?: string
+  ): Promise<boolean> {
+    const count = await prisma.notification.count({
+      where: {
+        userId,
+        type,
+        createdAt: { gte: since },
+        ...(entityId ? { entityId } : {}),
+      },
+    });
+    return count > 0;
+  }
 }

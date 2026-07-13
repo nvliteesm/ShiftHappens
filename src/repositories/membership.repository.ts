@@ -138,4 +138,20 @@ export class MembershipRepository {
       where: { id },
     });
   }
+
+  /**
+   * Finds a membership with the user and department details needed for
+   * eligibility checks and hour-limit alerting.
+   */
+  async findByIdWithDetails(id: string) {
+    return prisma.membership.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        departmentMemberships: {
+          include: { department: { select: { id: true, name: true } } },
+        },
+      },
+    });
+  }
 }

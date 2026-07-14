@@ -127,4 +127,13 @@
   html {
     @apply font-sans;
   }
+  /*
+   * Native dropdown items don't inherit the <select>'s colours — the browser
+   * paints them with the OS default (white) background, which makes them
+   * unreadable in dark mode. Force them to follow the theme.
+   */
+  option,
+  optgroup {
+    @apply bg-background text-foreground;
+  }
 }

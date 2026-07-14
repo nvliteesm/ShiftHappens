@@ -94,6 +94,8 @@ export default function TasksPage() {
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   // membershipId → reason, when a manager overrides an ineligible staff member
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
+  // Shown inside the assign panel — the page-level banner is off-screen there.
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -107,11 +109,15 @@ export default function TasksPage() {
   const [loadingEligibility, setLoadingEligibility] = useState(false);
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
+  // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
+  const [allocationMode, setAllocationMode] = useState<string>("manual");
+  const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks();
     fetchDepartments();
     fetchMembers();
+    fetchSettings();
   }, [orgId]);
 
   useEffect(() => {
@@ -140,6 +146,44 @@ export default function TasksPage() {
       const data = await res.json();
       setDepartments(data);
     } catch {}
+  }
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setAllocationMode(data.allocationMode ?? "manual");
+    } catch {}
+  }
+
+  /** Lets the system pick and assign the best-fit staff for a task (US-65). */
+  async function onAutoAssign(taskId: string) {
+    setError(null);
+    setSuccess(null);
+    setAutoAssigningId(taskId);
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/auto-allocate`,
+        { method: "POST" }
+      );
+
+      if (!res.ok) {
+        setError(await readError(res, "Auto-assign failed"));
+        return;
+      }
+
+      const assignments = await res.json().catch(() => []);
+      setSuccess(
+        `Auto-assigned ${Array.isArray(assignments) ? assignments.length : ""} staff`.trim()
+      );
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setAutoAssigningId(null);
+    }
   }
 
   async function fetchMembers() {
@@ -324,9 +368,21 @@ export default function TasksPage() {
     }
   }
 
+  /**
+   * Pulls an error message out of a failed response. A failing response is not
+   * guaranteed to carry a JSON body (a routing 404 has none), so parsing must
+   * never throw — otherwise the real reason is swallowed.
+   */
+  async function readError(res: Response, fallback: string): Promise<string> {
+    const body = await res.json().catch(() => null);
+    return body?.error || `${fallback} (HTTP ${res.status})`;
+  }
+
   async function onAssignStaff(taskId: string) {
+    setAssignError(null);
+
     if (selectedMembers.length === 0) {
-      setError("Select at least one member");
+      setAssignError("Select at least one member");
       return;
     }
     setError(null);
@@ -337,7 +393,7 @@ export default function TasksPage() {
       return elig && !elig.eligible && !overrideReasons[id]?.trim();
     });
     if (missingReason) {
-      setError("Provide an override reason for each flagged staff member");
+      setAssignError("Provide an override reason for each flagged staff member");
       return;
     }
 
@@ -360,8 +416,7 @@ export default function TasksPage() {
             }
           );
           if (!ovRes.ok) {
-            const r = await ovRes.json();
-            setError(r.error || "Failed to record override");
+            setAssignError(await readError(ovRes, "Failed to record override"));
             return;
           }
         }
@@ -376,20 +431,21 @@ export default function TasksPage() {
         }
       );
 
-      const result = await res.json();
-
       if (!res.ok) {
-        setError(result.error || "Failed to assign staff");
+        setAssignError(await readError(res, "Failed to assign staff"));
         return;
       }
 
       setAssigningTaskId(null);
       setSelectedMembers([]);
       setOverrideReasons({});
+      setAssignError(null);
       setSuccess("Staff assigned successfully");
       fetchTasks();
-    } catch {
-      setError("Something went wrong");
+    } catch (err) {
+      setAssignError(
+        err instanceof Error ? err.message : "Something went wrong"
+      );
     }
   }
 
@@ -880,6 +936,8 @@ export default function TasksPage() {
                           const newId = assigningTaskId === task.id ? null : task.id;
                           setAssigningTaskId(newId);
                           setSelectedMembers([]);
+                          setOverrideReasons({});
+                          setAssignError(null);
                           setSuggestions([]);
                           setShowSuggestions(false);
                           if (newId) fetchEligibility(newId);
@@ -888,6 +946,24 @@ export default function TasksPage() {
                         Assign
                       </Button>
                     )}
+
+                    {/* Auto-assign — only offered when the org runs in "auto"
+                        allocation mode and the task still needs staff (US-65). */}
+                    {allocationMode === "auto" &&
+                      task.status === "open" &&
+                      task.assignments.length < task.requiredHeadcount && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onAutoAssign(task.id)}
+                          disabled={autoAssigningId === task.id}
+                        >
+                          {autoAssigningId === task.id
+                            ? "Assigning..."
+                            : "⚡ Auto-assign"}
+                        </Button>
+                      )}
+
                     <select
                       className="rounded-md border px-2 py-1 text-sm"
                       value={task.status}
@@ -1196,6 +1272,11 @@ export default function TasksPage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                  {assignError && (
+                    <div className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
+                      {assignError}
                     </div>
                   )}
                   <Button

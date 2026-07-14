@@ -103,7 +103,34 @@ export class TaskService {
       }
     }
 
+    // In "auto" allocation mode the system fills the task itself (US-65).
+    await this.autoAllocateIfEnabled(task.id, orgId, userId);
+
     return task;
+  }
+
+  /**
+   * Fills a task with best-fit staff when the org runs in "auto" allocation
+   * mode. Never fails the create — an unfilled task is still a valid task, and
+   * a manager can assign (or re-run auto-assign) manually.
+   */
+  private async autoAllocateIfEnabled(
+    taskId: string,
+    orgId: string,
+    userId: string
+  ) {
+    try {
+      const settings = await this.settingsRepo.getOrCreate(orgId);
+      if (settings.allocationMode !== "auto") return;
+
+      // Imported lazily: AllocationService holds a TaskService, so making it a
+      // field here would make the two constructors recurse forever.
+      const { AllocationService } = await import("@/services/allocation.service");
+      await new AllocationService().autoAllocate(taskId, orgId, userId);
+    } catch (error) {
+      // "No eligible staff found" is a normal outcome, not a failure.
+      console.error("[Auto-Allocate Error]", error);
+    }
   }
 
   async getByOrganization(

@@ -21,12 +21,11 @@ import { WorkRuleRepository } from "@/repositories/work-rule.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateWorkRuleInput, UpdateWorkRuleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class WorkRuleService {
   private workRuleRepo = new WorkRuleRepository();
   private auditService = new AuditLogService();
-  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
+  private subscriptionService = new SubscriptionService();
 
   /**
    * Creates a new work rule with type-specific field validation.

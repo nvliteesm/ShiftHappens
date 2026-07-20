@@ -9,11 +9,10 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
-const subscriptionService = new SubscriptionService(new SubscriptionRepository());
+const subscriptionService = new SubscriptionService();
 const membershipRepo = new MembershipRepository();
 
 export async function GET(

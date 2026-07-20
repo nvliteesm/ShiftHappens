@@ -8,13 +8,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuditLogService } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 
 const auditService = new AuditLogService();
-const subscriptionService = new SubscriptionService(new SubscriptionRepository());
+const subscriptionService = new SubscriptionService();
 const membershipRepo = new MembershipRepository();
 
 export async function GET(

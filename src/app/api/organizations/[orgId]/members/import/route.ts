@@ -10,13 +10,12 @@ import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { UserManagementService } from "@/services/user-management.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { batchImportSchema } from "@/lib/validations";
 import { checkOrgActive } from "@/lib/org-guard";
 
 const membershipRepo = new MembershipRepository();
 const userManagementService = new UserManagementService();
-const subscriptionService = new SubscriptionService(new SubscriptionRepository());
+const subscriptionService = new SubscriptionService();
 
 export async function POST(
   req: NextRequest,

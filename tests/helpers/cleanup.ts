@@ -14,6 +14,7 @@ export async function cleanDatabase() {
   await prisma.availability.deleteMany();
   await prisma.taskAssignment.deleteMany();
   await prisma.task.deleteMany();
+  await prisma.workRule.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.role.deleteMany();
   await prisma.companySettings.deleteMany();
@@ -26,7 +27,6 @@ export async function cleanDatabase() {
   await prisma.session.deleteMany();
   await prisma.account.deleteMany();
   await prisma.organization.deleteMany();
+  await prisma.industryTemplate.deleteMany();
   await prisma.user.deleteMany();
-  await prisma.workRule.deleteMany();
-  await prisma.rolePermission.deleteMany();
 }

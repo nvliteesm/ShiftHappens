@@ -10,13 +10,12 @@
 import { DepartmentRepository } from "@/repositories/department.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import type { CreateDepartmentInput, UpdateDepartmentInput } from "@/lib/validations";
 
 export class DepartmentService {
   private deptRepo = new DepartmentRepository();
   private auditService = new AuditLogService();
-  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
+  private subscriptionService = new SubscriptionService();
 
   /**
    * Creates a new department in an organization.

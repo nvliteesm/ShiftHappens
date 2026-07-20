@@ -43,7 +43,7 @@ export interface UsageReport {
 }
 
 export class SubscriptionService {
-  constructor(private subscriptionRepository: SubscriptionRepository) {}
+  private subscriptionRepository = new SubscriptionRepository();
 
   /**
    * Get the validated subscription tier for an org.

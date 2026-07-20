@@ -17,7 +17,6 @@ import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -27,7 +26,7 @@ export class TaskService {
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
   private eligibilityService = new EligibilityService();
-  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
+  private subscriptionService = new SubscriptionService();
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
     await this.subscriptionService.enforceResourceLimit(orgId, 'active_tasks');

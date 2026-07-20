@@ -19,7 +19,6 @@ import { UserRepository } from "@/repositories/user.repository";
 import { EmailService } from "@/services/email.service";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 import { prisma } from "@/lib/prisma";
 import type { InviteUserInput, UpdateUserRoleInput } from "@/lib/validations";
 
@@ -29,7 +28,7 @@ export class UserManagementService {
   private userRepo = new UserRepository();
   private emailService = new EmailService();
   private auditService = new AuditLogService();
-  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
+  private subscriptionService = new SubscriptionService();
 
   /** Lists all members of an organization with user details and departments */
   async getOrgMembers(organizationId: string) {

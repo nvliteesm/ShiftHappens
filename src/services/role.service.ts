@@ -11,12 +11,11 @@ import { RoleRepository } from "@/repositories/role.repository";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import type { CreateRoleInput, UpdateRoleInput } from "@/lib/validations";
 import { SubscriptionService } from "@/services/subscription.service";
-import { SubscriptionRepository } from "@/repositories/subscription.repository";
 
 export class RoleService {
   private roleRepo = new RoleRepository();
   private auditService = new AuditLogService();
-  private subscriptionService = new SubscriptionService(new SubscriptionRepository());
+  private subscriptionService = new SubscriptionService();
 
   /**
    * Creates a new custom role in an organization.

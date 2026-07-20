@@ -248,7 +248,14 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
 
   return (
     <div>
-      <h2 className="mb-6 text-2xl font-bold">{orgName}</h2>
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="text-2xl font-bold">{orgName}</h2>
+        <a href={`/api/organizations/${orgId}/reports/export`}>
+          <Button variant="outline" size="sm">
+            Export PDF
+          </Button>
+        </a>
+      </div>
 
       {/* ---- Section 1: Needs Attention ---- */}
       {data.needsAttention && data.needsAttention.length > 0 && (

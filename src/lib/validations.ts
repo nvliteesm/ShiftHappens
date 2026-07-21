@@ -304,7 +304,16 @@ export const verifyCertificationSchema = z.object({
 export const createEligibilityOverrideSchema = z.object({
   membershipId: z.string().min(1),
   reason: z.string().min(1, "Override reason is required").max(500),
-  ruleOverridden: z.enum(["hours_limit", "certification", "availability"]),
+  // "all" overrides every warning for the member on this task (used by the
+  // assignment override flow); the specific keys target a single dimension.
+  ruleOverridden: z.enum([
+    "hours_limit",
+    "availability",
+    "scheduling",
+    "work_rules",
+    "certification",
+    "all",
+  ]),
 });
 
 // ============================================================

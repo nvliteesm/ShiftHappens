@@ -62,6 +62,8 @@ export default function TasksPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+  // membershipId → reason, when a manager overrides an ineligible staff member
+  const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -270,7 +272,42 @@ export default function TasksPage() {
     }
     setError(null);
 
+    // Any selected member that is ineligible must have an override reason.
+    const missingReason = selectedMembers.find((id) => {
+      const elig = eligibility[id];
+      return elig && !elig.eligible && !overrideReasons[id]?.trim();
+    });
+    if (missingReason) {
+      setError("Provide an override reason for each flagged staff member");
+      return;
+    }
+
     try {
+      // Record eligibility overrides for flagged members before assigning.
+      for (const membId of selectedMembers) {
+        const elig = eligibility[membId];
+        const reason = overrideReasons[membId]?.trim();
+        if (elig && !elig.eligible && reason) {
+          const ovRes = await fetch(
+            `/api/organizations/${orgId}/tasks/${taskId}/eligibility/override`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                membershipId: membId,
+                reason,
+                ruleOverridden: "all",
+              }),
+            }
+          );
+          if (!ovRes.ok) {
+            const r = await ovRes.json();
+            setError(r.error || "Failed to record override");
+            return;
+          }
+        }
+      }
+
       const res = await fetch(
         `/api/organizations/${orgId}/tasks/${taskId}/assign`,
         {
@@ -289,6 +326,7 @@ export default function TasksPage() {
 
       setAssigningTaskId(null);
       setSelectedMembers([]);
+      setOverrideReasons({});
       setSuccess("Staff assigned successfully");
       fetchTasks();
     } catch {
@@ -891,50 +929,93 @@ export default function TasksPage() {
                   {loadingEligibility ? (
                     <p className="text-sm text-muted-foreground">Checking staff eligibility...</p>
                   ) : (
-                    <div className="mb-3 space-y-1">
+                    <div className="mb-3 space-y-2">
                       {members.map((m) => {
                         const elig = eligibility[m.id];
                         const isEligible = elig ? elig.eligible : true;
                         const suggestion = suggestions.find(
                           (s) => s.membershipId === m.id
                         );
+                        const selected = selectedMembers.includes(m.id);
                         const atLimit =
-                          !selectedMembers.includes(m.id) &&
+                          !selected &&
                           selectedMembers.length >= task.requiredHeadcount;
+                        const overrideReason = overrideReasons[m.id] || "";
+                        const hasOverride = overrideReason.trim().length > 0;
+                        const canSelect = isEligible || hasOverride;
+
+                        // All failing dimensions, not just the first.
+                        const warnings: string[] =
+                          elig && !elig.eligible
+                            ? (["availability", "scheduling", "workRules", "hoursLimit"] as const)
+                                .filter((k) => elig.checks[k] && !elig.checks[k].eligible)
+                                .map((k) => elig.checks[k].reason || k)
+                            : [];
 
                         return (
-                          <label
+                          <div
                             key={m.id}
-                            className={`flex items-center gap-2 text-sm ${
-                              !isEligible || atLimit ? "opacity-60" : ""
+                            className={`rounded-md p-2 ${
+                              !isEligible
+                                ? "border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+                                : ""
                             }`}
                           >
-                            <input
-                              type="checkbox"
-                              checked={selectedMembers.includes(m.id)}
-                              onChange={() => toggleMemberSelection(m.id)}
-                              disabled={!isEligible || atLimit}
-                            />
-                            <span>{m.user.name || m.user.email}</span>
-                            <span className="text-xs text-muted-foreground">({m.role})</span>
-                            {suggestion && (
-                              <span className="text-xs text-blue-600">
-                                #{suggestion.rank} · {suggestion.score}/100
-                              </span>
+                            <label
+                              className={`flex items-center gap-2 text-sm ${
+                                !canSelect || atLimit ? "opacity-60" : ""
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleMemberSelection(m.id)}
+                                disabled={!canSelect || atLimit}
+                              />
+                              <span>{m.user.name || m.user.email}</span>
+                              <span className="text-xs text-muted-foreground">({m.role})</span>
+                              {suggestion && (
+                                <span className="text-xs text-blue-600">
+                                  #{suggestion.rank} · {suggestion.score}/100
+                                </span>
+                              )}
+                              {isEligible && !suggestion && (
+                                <span className="text-xs text-green-600">✓ eligible</span>
+                              )}
+                              {!isEligible && (
+                                <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                                  ⚠ {warnings.length} warning{warnings.length !== 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </label>
+
+                            {/* Warnings + override-with-reason */}
+                            {!isEligible && (
+                              <div className="mt-1 space-y-1.5 pl-6">
+                                <ul className="list-disc space-y-0.5 pl-4 text-xs text-amber-700 dark:text-amber-400">
+                                  {warnings.map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                  ))}
+                                </ul>
+                                <Input
+                                  value={overrideReason}
+                                  onChange={(e) =>
+                                    setOverrideReasons((prev) => ({
+                                      ...prev,
+                                      [m.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Reason to assign anyway (required to override)"
+                                  className="h-8 text-xs"
+                                />
+                                {hasOverride && (
+                                  <p className="text-xs text-green-600">
+                                    ✓ Override recorded on assignment — you can select this member
+                                  </p>
+                                )}
+                              </div>
                             )}
-                            {elig && !elig.eligible && (
-                              <span className="text-xs text-red-500">
-                                {(!elig.checks.availability?.eligible && elig.checks.availability?.reason) ||
-                                 (!elig.checks.scheduling?.eligible && elig.checks.scheduling?.reason) ||
-                                 (!elig.checks.workRules?.eligible && elig.checks.workRules?.reason) ||
-                                 (!elig.checks.hoursLimit?.eligible && elig.checks.hoursLimit?.reason) ||
-                                 "Ineligible"}
-                              </span>
-                            )}
-                            {elig && elig.eligible && !suggestion && (
-                              <span className="text-xs text-green-500">✓ eligible</span>
-                            )}
-                          </label>
+                          </div>
                         );
                       })}
                     </div>

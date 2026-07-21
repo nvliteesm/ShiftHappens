@@ -23,6 +23,7 @@ import { SettingsRepository } from "@/repositories/settings.repository";
 import { TaskAssignmentRepository } from "@/repositories/task-assignment.repository";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { WorkRuleRepository } from "@/repositories/work-rule.repository";
+import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { prisma } from "@/lib/prisma";
 
 interface EligibilityCheck {
@@ -52,6 +53,19 @@ export class EligibilityService {
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
   private workRuleRepo = new WorkRuleRepository();
+  private auditService = new AuditLogService();
+
+  /**
+   * Maps each dimension of the eligibility check to the `ruleOverridden`
+   * key stored on an EligibilityOverride. A single "all" override waives
+   * every warning for a member on a task (used by the assignment flow).
+   */
+  private readonly OVERRIDE_KEYS = {
+    hoursLimit: "hours_limit",
+    availability: "availability",
+    scheduling: "scheduling",
+    workRules: "work_rules",
+  } as const;
 
   /**
    * Checks eligibility for all active staff in an organization
@@ -76,33 +90,37 @@ export class EligibilityService {
       (m) => m.status === "active" && m.role !== "company_admin"
     );
 
+    // Load all overrides for this task once, grouped by member.
+    const overridesByMember = await this.getOverrideMap(taskId);
+
     const results: StaffEligibility[] = [];
 
     for (const member of eligibleMembers) {
       const memberEmploymentType =
         (member as Record<string, unknown>).employmentType as string || "casual";
 
-      // Check for existing overrides
-      const overrides: string[] = [];
-      const hasHoursOverride = await this.overrideRepo.hasOverride(
-        taskId,
-        member.id,
-        "hours_limit"
-      );
-      const hasAvailOverride = await this.overrideRepo.hasOverride(
-        taskId,
-        member.id,
-        "availability"
-      );
-      if (hasHoursOverride) overrides.push("hours_limit");
-      if (hasAvailOverride) overrides.push("availability");
+      const memberOverrides = overridesByMember.get(member.id) ?? new Set<string>();
+      // A member is waived on a dimension by a matching key or a blanket "all".
+      const isOverridden = (key: string) =>
+        memberOverrides.has("all") || memberOverrides.has(key);
 
-      // 1. Check hours limit
-      const hoursCheck = hasHoursOverride
-        ? { eligible: true, reason: "Override applied" }
-        : await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked);
+      // Applies an override to a failing check — keeps the original reason
+      // visible so the manager knows what was waived.
+      const applyOverride = (
+        key: string,
+        check: EligibilityCheck
+      ): EligibilityCheck =>
+        !check.eligible && isOverridden(key)
+          ? { eligible: true, reason: `Overridden — was: ${check.reason}` }
+          : check;
 
-      // 2. Check availability
+      // 1. Hours limit
+      const hoursCheck = applyOverride(
+        this.OVERRIDE_KEYS.hoursLimit,
+        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked)
+      );
+
+      // 2. Availability
       //    Casual: weekly availability is a hard constraint — fail if not available
       //    Full-time: always available during operating hours — skip check
       let availCheck: EligibilityCheck = { eligible: true };
@@ -115,40 +133,39 @@ export class EligibilityService {
         const startTime = `${pad(task.scheduledStart.getHours())}:${pad(task.scheduledStart.getMinutes())}`;
         const endTime = `${pad(task.scheduledEnd.getHours())}:${pad(task.scheduledEnd.getMinutes())}`;
 
-        if (hasAvailOverride) {
-          availCheck = { eligible: true, reason: "Override applied" };
-        } else {
-          const availResult = await this.availRepo.isAvailableAt(
-            member.id,
-            task.scheduledStart,
-            startTime,
-            endTime
-          );
-          availCheck = {
-            eligible: availResult.available,
-            reason: availResult.reason,
-          };
-        }
+        const availResult = await this.availRepo.isAvailableAt(
+          member.id,
+          task.scheduledStart,
+          startTime,
+          endTime
+        );
+        availCheck = applyOverride(this.OVERRIDE_KEYS.availability, {
+          eligible: availResult.available,
+          reason: availResult.reason,
+        });
       }
 
-      // 3. Check scheduling conflicts
-      const schedulingCheck = await this.checkSchedulingConflicts(
-        member.id,
-        task
+      // 3. Scheduling conflicts
+      const schedulingCheck = applyOverride(
+        this.OVERRIDE_KEYS.scheduling,
+        await this.checkSchedulingConflicts(member.id, task)
       );
 
-      // 4. Check work rules — filtered by member's departments and custom role
+      // 4. Work rules — filtered by member's departments and custom role
       const memberDeptIds = (member.departmentMemberships || []).map(
         (dm: { department: { id: string } }) => dm.department.id
       );
       const memberCustomRoleId = (member as Record<string, unknown>).customRoleId as string | null;
 
-      const workRulesCheck = await this.checkWorkRules(
-        member.id,
-        allWorkRules,
-        task,
-        memberDeptIds,
-        memberCustomRoleId || null
+      const workRulesCheck = applyOverride(
+        this.OVERRIDE_KEYS.workRules,
+        await this.checkWorkRules(
+          member.id,
+          allWorkRules,
+          task,
+          memberDeptIds,
+          memberCustomRoleId || null
+        )
       );
 
       const eligible =
@@ -169,11 +186,23 @@ export class EligibilityService {
           scheduling: schedulingCheck,
           workRules: workRulesCheck,
         },
-        overrides,
+        overrides: Array.from(memberOverrides),
       });
     }
 
     return results;
+  }
+
+  /** Builds a map of membershipId → set of overridden rule keys for a task. */
+  private async getOverrideMap(taskId: string): Promise<Map<string, Set<string>>> {
+    const overrides = await this.overrideRepo.findByTaskId(taskId);
+    const map = new Map<string, Set<string>>();
+    for (const o of overrides) {
+      const set = map.get(o.membershipId) ?? new Set<string>();
+      set.add(o.ruleOverridden);
+      map.set(o.membershipId, set);
+    }
+    return map;
   }
 
   /**
@@ -451,13 +480,36 @@ export class EligibilityService {
     reason: string,
     ruleOverridden: string
   ) {
-    return this.overrideRepo.create({
+    const override = await this.overrideRepo.create({
       taskId,
       membershipId,
       overriddenById,
       reason,
       ruleOverridden,
     });
+
+    // Audit — records who waived which rule and why.
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { organizationId: true, title: true },
+    });
+    if (task) {
+      void this.auditService.log({
+        organizationId: task.organizationId,
+        userId: overriddenById,
+        action: ACTIONS.ELIGIBILITY_OVERRIDDEN,
+        entityType: "task",
+        entityId: taskId,
+        details: {
+          taskTitle: task.title,
+          membershipId,
+          ruleOverridden,
+          reason,
+        },
+      });
+    }
+
+    return override;
   }
 
   /** Gets all overrides for a task */

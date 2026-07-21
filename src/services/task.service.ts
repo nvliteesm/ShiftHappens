@@ -17,6 +17,7 @@ import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations";
 import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
+import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
@@ -26,6 +27,7 @@ export class TaskService {
   private auditService = new AuditLogService();
   private notificationService = new NotificationService();
   private eligibilityService = new EligibilityService();
+  private overrideRepo = new EligibilityOverrideRepository();
   private subscriptionService = new SubscriptionService();
 
   async create(input: CreateTaskInput, orgId: string, userId: string) {
@@ -175,9 +177,16 @@ export class TaskService {
           taskId
         );
         if (conflicts.length > 0) {
-          throw new Error(
-            `Staff has a scheduling conflict with "${conflicts[0].title}"`
-          );
+          // A manager can override a scheduling conflict with a documented
+          // reason (recorded as an eligibility override before assigning).
+          const overridden =
+            (await this.overrideRepo.hasOverride(taskId, membId, "scheduling")) ||
+            (await this.overrideRepo.hasOverride(taskId, membId, "all"));
+          if (!overridden) {
+            throw new Error(
+              `Staff has a scheduling conflict with "${conflicts[0].title}"`
+            );
+          }
         }
       }
     }

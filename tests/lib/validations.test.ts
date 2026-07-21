@@ -499,6 +499,21 @@ describe("createEligibilityOverrideSchema", () => {
     const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Special case", ruleOverridden: "invalid_rule" });
     expect(result.success).toBe(false);
   });
+
+  it("accepts the 'scheduling' rule", () => {
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "scheduling" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the 'work_rules' rule", () => {
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "work_rules" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts the 'all' rule (blanket override)", () => {
+    const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Manager approved", ruleOverridden: "all" });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("createCheckoutSchema", () => {

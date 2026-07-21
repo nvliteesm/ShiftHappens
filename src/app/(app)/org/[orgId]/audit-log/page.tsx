@@ -40,6 +40,7 @@ const ACTION_LABELS: Record<string, string> = {
   "assignment.withdrawal_requested": "Withdrawal requested",
   "assignment.withdrawal_approved": "Withdrawal approved",
   "assignment.withdrawal_denied": "Withdrawal denied",
+  "assignment.eligibility_overridden": "Eligibility overridden",
   "member.invited": "Member invited",
   "member.role_changed": "Role changed",
   "member.activated": "Member activated",

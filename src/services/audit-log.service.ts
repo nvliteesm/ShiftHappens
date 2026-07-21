@@ -27,6 +27,7 @@ const ACTIONS = {
   ASSIGNMENT_WITHDRAWAL_REQUESTED: "assignment.withdrawal_requested",
   ASSIGNMENT_WITHDRAWAL_APPROVED: "assignment.withdrawal_approved",
   ASSIGNMENT_WITHDRAWAL_DENIED: "assignment.withdrawal_denied",
+  ELIGIBILITY_OVERRIDDEN: "assignment.eligibility_overridden",
   // Members
   MEMBER_INVITED: "member.invited",
   MEMBER_ROLE_CHANGED: "member.role_changed",

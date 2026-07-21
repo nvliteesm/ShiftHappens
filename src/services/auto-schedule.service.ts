@@ -137,7 +137,7 @@ export class AutoScheduleService {
       const assignments = await prisma.taskAssignment.findMany({
         where: {
           membershipId: member.id,
-          status: { in: ["accepted", "completed"] },
+          status: { in: ["accepted", "clocked_out", "completed"] },
           clockInTime: { not: null },
           task: { scheduledStart: { gte: weekStart }, scheduledEnd: { lte: weekEnd } },
         },

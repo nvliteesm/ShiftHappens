@@ -645,7 +645,7 @@ CRITICAL RULES:
       const assignments = await prisma.taskAssignment.findMany({
         where: {
           membershipId: staff.id,
-          status: "completed",
+          status: { in: ["clocked_out", "completed"] },
           clockInTime: { gte: oneDayAgo },
           clockOutTime: { not: null },
         },
@@ -704,7 +704,7 @@ CRITICAL RULES:
     const completedToday = await prisma.taskAssignment.count({
       where: {
         task: { organizationId },
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockOutTime: { gte: todayStart },
       },
     });

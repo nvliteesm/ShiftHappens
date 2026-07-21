@@ -32,6 +32,8 @@ import {
   verifyCertificationSchema,
   createEligibilityOverrideSchema,
   createCheckoutSchema,
+  withdrawTaskSchema,
+  withdrawalDecisionSchema,
 } from "@/lib/validations";
 
 describe("registerSchema", () => {
@@ -522,6 +524,45 @@ describe("createCheckoutSchema", () => {
 
   it("rejects a missing source", () => {
     const result = createCheckoutSchema.safeParse({ interval: "month" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("withdrawTaskSchema", () => {
+  it("accepts a valid withdrawal reason", () => {
+    const result = withdrawTaskSchema.safeParse({ reason: "Family emergency" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a reason that is too short", () => {
+    const result = withdrawTaskSchema.safeParse({ reason: "no" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing reason", () => {
+    const result = withdrawTaskSchema.safeParse({});
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a reason over 500 characters", () => {
+    const result = withdrawTaskSchema.safeParse({ reason: "a".repeat(501) });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("withdrawalDecisionSchema", () => {
+  it("accepts 'approve'", () => {
+    const result = withdrawalDecisionSchema.safeParse({ decision: "approve" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts 'deny'", () => {
+    const result = withdrawalDecisionSchema.safeParse({ decision: "deny" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects any other decision", () => {
+    const result = withdrawalDecisionSchema.safeParse({ decision: "maybe" });
     expect(result.success).toBe(false);
   });
 });

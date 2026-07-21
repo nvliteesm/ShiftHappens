@@ -171,7 +171,7 @@ export class AllocationService {
     const recentAssignments = await prisma.taskAssignment.findMany({
       where: {
         membershipId,
-        status: "completed",
+        status: { in: ["clocked_out", "completed"] },
         clockInTime: { gte: oneDayAgo },
         clockOutTime: { not: null },
       },
@@ -206,7 +206,7 @@ export class AllocationService {
         where: {
           membershipId,
           task: { departmentId },
-          status: { in: ["accepted", "completed"] },
+          status: { in: ["accepted", "clocked_out", "completed"] },
         },
       });
     }

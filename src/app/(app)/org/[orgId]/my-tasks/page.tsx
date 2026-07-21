@@ -24,7 +24,8 @@ interface Assignment {
   clockInTime: string | null;
   clockOutTime: string | null;
   rejectionReason: string | null;
-  rejectionNotes: string | null
+  rejectionNotes: string | null;
+  withdrawalReason: string | null;
   task: {
     id: string;
     title: string;
@@ -43,6 +44,7 @@ export default function MyTasksPage() {
   const orgId = params.orgId as string;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,7 +139,50 @@ export default function MyTasksPage() {
         setError(result.error);
         return;
       }
-      setSuccess("Clocked out — task completed");
+      setSuccess("Clocked out — mark the task complete when you're done");
+      fetchAssignments();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
+  async function onComplete(assignmentId: string) {
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/assignments/${assignmentId}/complete?orgId=${orgId}`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const result = await res.json();
+        setError(result.error);
+        return;
+      }
+      setSuccess("Task marked as completed");
+      fetchAssignments();
+    } catch {
+      setError("Something went wrong");
+    }
+  }
+
+  async function onRequestWithdrawal(assignmentId: string, reason: string) {
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/assignments/${assignmentId}/withdraw?orgId=${orgId}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason }),
+        }
+      );
+      if (!res.ok) {
+        const result = await res.json();
+        setError(result.error);
+        return;
+      }
+      setWithdrawingId(null);
+      setSuccess("Withdrawal requested — your manager has been notified");
       fetchAssignments();
     } catch {
       setError("Something went wrong");
@@ -149,15 +194,28 @@ export default function MyTasksPage() {
       case "pending": return "bg-amber-100 text-amber-700";
       case "accepted": return "bg-blue-100 text-blue-700";
       case "rejected": return "bg-red-100 text-red-700";
+      case "clocked_out": return "bg-indigo-100 text-indigo-700";
       case "completed": return "bg-green-100 text-green-700";
+      case "withdrawal_requested": return "bg-orange-100 text-orange-700";
       default: return "bg-gray-100 text-gray-600";
     }
+  }
+
+  function statusLabel(status: string) {
+    return status === "withdrawal_requested"
+      ? "withdrawal requested"
+      : status === "clocked_out"
+        ? "clocked out"
+        : status;
   }
 
   if (loading) return <p>Loading...</p>;
 
   const pending = assignments.filter((a) => a.status === "pending");
-  const active = assignments.filter((a) => a.status === "accepted");
+  const active = assignments.filter(
+    (a) => a.status === "accepted" || a.status === "withdrawal_requested"
+  );
+  const awaitingCompletion = assignments.filter((a) => a.status === "clocked_out");
   const completed = assignments.filter((a) => a.status === "completed");
   const rejected = assignments.filter((a) => a.status === "rejected");
 
@@ -275,7 +333,7 @@ export default function MyTasksPage() {
                   <CardTitle className="flex items-center gap-2">
                     {a.task.title}
                     <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
-                      accepted
+                      {statusLabel(a.status)}
                     </span>
                   </CardTitle>
                   <CardDescription>
@@ -286,18 +344,94 @@ export default function MyTasksPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex gap-2">
-                    {!a.clockInTime && (
-                      <Button size="sm" onClick={() => onClockIn(a.id)}>
-                        Clock In
-                      </Button>
-                    )}
-                    {a.clockInTime && !a.clockOutTime && (
-                      <Button size="sm" onClick={() => onClockOut(a.id)}>
-                        Clock Out
-                      </Button>
-                    )}
-                  </div>
+                  {a.status === "withdrawal_requested" ? (
+                    <p className="text-sm text-muted-foreground">
+                      Withdrawal requested
+                      {a.withdrawalReason ? ` — "${a.withdrawalReason}"` : ""}.
+                      {" "}Awaiting your manager&apos;s decision.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        {!a.clockInTime && (
+                          <Button size="sm" onClick={() => onClockIn(a.id)}>
+                            Clock In
+                          </Button>
+                        )}
+                        {a.clockInTime && !a.clockOutTime && (
+                          <Button size="sm" onClick={() => onClockOut(a.id)}>
+                            Clock Out
+                          </Button>
+                        )}
+                        {!a.clockInTime && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setWithdrawingId(withdrawingId === a.id ? null : a.id)
+                            }
+                          >
+                            Request withdrawal
+                          </Button>
+                        )}
+                      </div>
+                      {withdrawingId === a.id && (
+                        <form
+                          className="mt-3 space-y-3"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const formData = new FormData(e.currentTarget);
+                            onRequestWithdrawal(
+                              a.id,
+                              formData.get("reason") as string
+                            );
+                          }}
+                        >
+                          <Input
+                            name="reason"
+                            required
+                            minLength={3}
+                            placeholder="Reason for withdrawing (e.g. schedule conflict)"
+                          />
+                          <Button type="submit" size="sm" variant="outline">
+                            Submit request
+                          </Button>
+                        </form>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Awaiting completion (clocked out, not yet marked done) */}
+      {awaitingCompletion.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-3 text-lg font-semibold">
+            Awaiting completion ({awaitingCompletion.length})
+          </h3>
+          <div className="space-y-3">
+            {awaitingCompletion.map((a) => (
+              <Card key={a.id}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    {a.task.title}
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor(a.status)}`}>
+                      {statusLabel(a.status)}
+                    </span>
+                  </CardTitle>
+                  <CardDescription>
+                    {a.clockInTime && new Date(a.clockInTime).toLocaleTimeString()}
+                    {a.clockOutTime && ` — ${new Date(a.clockOutTime).toLocaleTimeString()}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button size="sm" onClick={() => onComplete(a.id)}>
+                    Mark as complete
+                  </Button>
                 </CardContent>
               </Card>
             ))}

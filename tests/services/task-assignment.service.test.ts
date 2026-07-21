@@ -154,13 +154,13 @@ describe("TaskAssignmentService", () => {
   });
 
   describe("clockOut", () => {
-    it("clocks out and completes the assignment", async () => {
+    it("clocks out to the clocked_out status (not yet completed)", async () => {
       const assignment = await createAssignment("accepted");
       await assignmentService.clockIn(assignment.id, membershipId);
 
       const clocked = await assignmentService.clockOut(assignment.id, membershipId);
       expect(clocked.clockOutTime).not.toBeNull();
-      expect(clocked.status).toBe("completed");
+      expect(clocked.status).toBe("clocked_out");
     });
 
     it("throws if not clocked in", async () => {
@@ -179,6 +179,81 @@ describe("TaskAssignmentService", () => {
       await expect(
         assignmentService.clockOut(assignment.id, membershipId)
       ).rejects.toThrow("Already clocked out");
+    });
+  });
+
+  describe("complete", () => {
+    it("marks a clocked-out assignment as completed", async () => {
+      const assignment = await createAssignment("accepted");
+      await assignmentService.clockIn(assignment.id, membershipId);
+      await assignmentService.clockOut(assignment.id, membershipId);
+
+      const completed = await assignmentService.complete(assignment.id, membershipId);
+      expect(completed.status).toBe("completed");
+    });
+
+    it("throws if not clocked out yet", async () => {
+      const assignment = await createAssignment("accepted");
+
+      await expect(
+        assignmentService.complete(assignment.id, membershipId)
+      ).rejects.toThrow("Can only complete a task after clocking out");
+    });
+  });
+
+  describe("requestWithdrawal", () => {
+    it("records a withdrawal request with reason on an accepted assignment", async () => {
+      const assignment = await createAssignment("accepted");
+
+      const result = await assignmentService.requestWithdrawal(
+        assignment.id,
+        membershipId,
+        "Family emergency"
+      );
+      expect(result.status).toBe("withdrawal_requested");
+      expect(result.withdrawalReason).toBe("Family emergency");
+    });
+
+    it("throws if the assignment is not accepted", async () => {
+      const assignment = await createAssignment("pending");
+
+      await expect(
+        assignmentService.requestWithdrawal(assignment.id, membershipId, "reason")
+      ).rejects.toThrow("Can only withdraw from an accepted task");
+    });
+  });
+
+  describe("resolveWithdrawal", () => {
+    it("approve removes the assignment", async () => {
+      const assignment = await createAssignment("accepted");
+      await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
+
+      await assignmentService.resolveWithdrawal(assignment.id, "approve", userId);
+
+      const found = await prisma.taskAssignment.findUnique({
+        where: { id: assignment.id },
+      });
+      expect(found).toBeNull();
+    });
+
+    it("deny reverts the assignment to accepted", async () => {
+      const assignment = await createAssignment("accepted");
+      await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
+
+      const result = await assignmentService.resolveWithdrawal(
+        assignment.id,
+        "deny",
+        userId
+      );
+      expect(result.status).toBe("accepted");
+    });
+
+    it("throws if there is no pending withdrawal request", async () => {
+      const assignment = await createAssignment("accepted");
+
+      await expect(
+        assignmentService.resolveWithdrawal(assignment.id, "approve", userId)
+      ).rejects.toThrow("No pending withdrawal request");
     });
   });
 });

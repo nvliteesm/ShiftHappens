@@ -31,6 +31,7 @@ import {
   createCertificationSchema,
   verifyCertificationSchema,
   createEligibilityOverrideSchema,
+  createCheckoutSchema,
 } from "@/lib/validations";
 
 describe("registerSchema", () => {
@@ -494,6 +495,33 @@ describe("createEligibilityOverrideSchema", () => {
 
   it("rejects invalid rule", () => {
     const result = createEligibilityOverrideSchema.safeParse({ membershipId: "member-123", reason: "Special case", ruleOverridden: "invalid_rule" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createCheckoutSchema", () => {
+  it("accepts a monthly checkout from onboarding", () => {
+    const result = createCheckoutSchema.safeParse({ interval: "month", source: "onboarding" });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a yearly checkout from settings", () => {
+    const result = createCheckoutSchema.safeParse({ interval: "year", source: "settings" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an invalid interval", () => {
+    const result = createCheckoutSchema.safeParse({ interval: "week", source: "settings" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects an invalid source", () => {
+    const result = createCheckoutSchema.safeParse({ interval: "month", source: "email" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a missing source", () => {
+    const result = createCheckoutSchema.safeParse({ interval: "month" });
     expect(result.success).toBe(false);
   });
 });

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { TIER_CONFIG } from "@/lib/subscription-tiers";
 
 interface OrgDetails {
   id: string;
@@ -122,12 +123,52 @@ export default function SettingsPage() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // ─── Billing / upgrade ─────────────────────────────────────
+  const [upgradeInterval, setUpgradeInterval] = useState<"month" | "year">(
+    "month"
+  );
+  const [upgrading, setUpgrading] = useState(false);
+  const [checkoutBanner, setCheckoutBanner] = useState<
+    "success" | "canceled" | null
+  >(null);
+
   useEffect(() => {
     fetchOrgDetails();
     fetchSettings();
     fetchSubscription();
     fetchIndustries();
   }, [orgId]);
+
+  // Reflect the ?checkout=success|canceled param Stripe redirects back with.
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("checkout");
+    if (status === "success" || status === "canceled") {
+      setCheckoutBanner(status);
+      // Clean the URL so a refresh doesn't re-show the banner.
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
+
+  async function startUpgrade() {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interval: upgradeInterval, source: "settings" }),
+      });
+      const data = await res.json();
+      if (res.ok && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      setMessage({ type: "error", text: data.error || "Couldn't start checkout" });
+    } catch {
+      setMessage({ type: "error", text: "Couldn't start checkout" });
+    } finally {
+      setUpgrading(false);
+    }
+  }
 
   // ─── Org details fetching + saving ─────────────────────────
 
@@ -429,6 +470,18 @@ export default function SettingsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
+            {/* Post-checkout banner */}
+            {checkoutBanner === "success" && (
+              <div className="rounded-md bg-green-50 p-3 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
+                Payment received — your plan will update to Pro momentarily. Refresh if it hasn&apos;t updated.
+              </div>
+            )}
+            {checkoutBanner === "canceled" && (
+              <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                Checkout canceled — no charge was made. You&apos;re still on the {subscription.displayName} plan.
+              </div>
+            )}
+
             <div>
               <p className="text-sm font-medium mb-3">Resource Usage</p>
               <div className="space-y-3">
@@ -484,11 +537,78 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {subscription.tier !== "enterprise" && (
+            {/* Upgrade to Pro (free tier only) */}
+            {subscription.tier === "free" && (
+              <>
+                <Separator />
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Upgrade to Pro</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {TIER_CONFIG.pro.tagline}
+                      </p>
+                    </div>
+                    <p className="text-lg font-bold whitespace-nowrap">
+                      $
+                      {upgradeInterval === "year"
+                        ? TIER_CONFIG.pro.yearlyPrice
+                        : TIER_CONFIG.pro.monthlyPrice}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        /{upgradeInterval === "year" ? "yr" : "mo"}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Billing:</span>
+                    <div className="inline-flex rounded-md border p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setUpgradeInterval("month")}
+                        className={`rounded px-3 py-1 text-xs transition-colors ${
+                          upgradeInterval === "month"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Monthly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUpgradeInterval("year")}
+                        className={`rounded px-3 py-1 text-xs transition-colors ${
+                          upgradeInterval === "year"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Annual
+                        <span className="ml-1 text-[10px] opacity-80">
+                          (2 months free)
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={startUpgrade}
+                    disabled={upgrading}
+                  >
+                    {upgrading ? "Redirecting…" : "Upgrade to Pro"}
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {/* Pro tier — enterprise is contact-sales */}
+            {subscription.tier === "pro" && (
               <>
                 <Separator />
                 <p className="text-sm text-muted-foreground">
-                  Contact your platform administrator to upgrade your plan.
+                  You&apos;re on the Pro plan. Need higher limits or audit logs?
+                  Contact us about Enterprise.
                 </p>
               </>
             )}

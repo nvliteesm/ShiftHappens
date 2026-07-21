@@ -72,6 +72,12 @@ export const createOrganizationSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
+/** Validates a Stripe checkout request for the Pro plan */
+export const createCheckoutSchema = z.object({
+  interval: z.enum(["month", "year"]),
+  source: z.enum(["onboarding", "settings"]),
+});
+
 /** 
  * Validates profile updates.
  * Password change requires current password for verification.

@@ -37,8 +37,10 @@ import {
   ShieldCheck,
   Award,
   Building,
+  CreditCard,
 } from "lucide-react";
 import type { CustomTemplateData } from "@/lib/industry-templates";
+import { TIER_CONFIG } from "@/lib/subscription-tiers";
 
 const CUSTOM_TEMPLATE_ID = "custom";
 
@@ -178,6 +180,10 @@ export default function OnboardingPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Plan selection (paid plans go through Stripe checkout after org creation)
+  const [plan, setPlan] = useState<"free" | "pro">("free");
+  const [interval, setInterval] = useState<"month" | "year">("month");
+
   // Fetch templates on mount
   useEffect(() => {
     async function fetchTemplates() {
@@ -275,6 +281,39 @@ export default function OnboardingPage() {
         setError(result.error || "Failed to create organization");
         return;
       }
+
+      // Paid plan: hand off to Stripe Checkout. The org is created on the free
+      // tier and only upgraded once Stripe confirms payment (via webhook).
+      if (plan === "pro") {
+        const checkoutRes = await fetch(
+          `/api/organizations/${result.id}/checkout`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ interval, source: "onboarding" }),
+          }
+        );
+        const checkout = await checkoutRes.json();
+
+        if (checkoutRes.ok && checkout.url) {
+          window.location.href = checkout.url;
+          return;
+        }
+
+        // Checkout couldn't start — the org still exists on Free, so continue
+        // into the app rather than blocking the user.
+        setError(
+          (checkout.error || "Couldn't start checkout") +
+            " — your workspace was created on the Free plan. You can upgrade later in Settings."
+        );
+        setCreating(false);
+        setTimeout(() => {
+          router.push("/dashboard");
+          router.refresh();
+        }, 2500);
+        return;
+      }
+
       router.push("/dashboard");
       router.refresh();
     } catch {
@@ -551,6 +590,101 @@ export default function OnboardingPage() {
                     </div>
                   </div>
                 )}
+
+                <Separator />
+
+                {/* ─── Plan selection ─────────────────────────────── */}
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-base font-medium">Choose a plan</p>
+                    <p className="text-sm text-muted-foreground">
+                      Start free, or unlock more with Pro. You can change this
+                      anytime in Settings.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Free */}
+                    <button
+                      type="button"
+                      onClick={() => setPlan("free")}
+                      className={`rounded-lg border p-4 text-left transition-all ${
+                        plan === "free"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <p className="text-sm font-medium">
+                        {TIER_CONFIG.free.displayName}
+                      </p>
+                      <p className="text-lg font-bold">$0</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {TIER_CONFIG.free.tagline}
+                      </p>
+                    </button>
+
+                    {/* Pro */}
+                    <button
+                      type="button"
+                      onClick={() => setPlan("pro")}
+                      className={`rounded-lg border p-4 text-left transition-all ${
+                        plan === "pro"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <p className="text-sm font-medium">
+                        {TIER_CONFIG.pro.displayName}
+                      </p>
+                      <p className="text-lg font-bold">
+                        $
+                        {interval === "year"
+                          ? TIER_CONFIG.pro.yearlyPrice
+                          : TIER_CONFIG.pro.monthlyPrice}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          /{interval === "year" ? "yr" : "mo"}
+                        </span>
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {TIER_CONFIG.pro.tagline}
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* Billing interval toggle (Pro only) */}
+                  {plan === "pro" && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Billing:</span>
+                      <div className="inline-flex rounded-md border p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setInterval("month")}
+                          className={`rounded px-3 py-1 text-xs transition-colors ${
+                            interval === "month"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Monthly
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInterval("year")}
+                          className={`rounded px-3 py-1 text-xs transition-colors ${
+                            interval === "year"
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          Annual
+                          <span className="ml-1 text-[10px] opacity-80">
+                            (2 months free)
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
               <CardFooter className="flex justify-between">
                 <Button
@@ -562,7 +696,16 @@ export default function OnboardingPage() {
                   Back
                 </Button>
                 <Button type="submit" disabled={creating}>
-                  {creating ? "Creating..." : "Create organization"}
+                  {creating ? (
+                    "Creating..."
+                  ) : plan === "pro" ? (
+                    <>
+                      <CreditCard className="h-4 w-4 mr-1.5" />
+                      Continue to payment
+                    </>
+                  ) : (
+                    "Create organization"
+                  )}
                 </Button>
               </CardFooter>
             </form>

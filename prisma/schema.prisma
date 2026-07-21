@@ -41,6 +41,11 @@ model Organization {
   templateId          String?
   status              String   @default("active")
   subscriptionTier    String   @default("free")   // "free" | "pro" | "enterprise"
+  // Stripe billing (test mode). Set by the checkout webhook, not by users.
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?
+  subscriptionStatus   String?  // "active" | "past_due" | "canceled" | ... (mirrors Stripe)
+  billingInterval      String?  // "month" | "year"
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

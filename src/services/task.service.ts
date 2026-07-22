@@ -18,9 +18,15 @@ import { AuditLogService, ACTIONS } from "@/services/audit-log.service";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { SubscriptionService } from "@/services/subscription.service";
 import { EligibilityOverrideRepository } from "@/repositories/eligibility-override.repository";
+import {
+  RecurringTaskService,
+  DEFAULT_HORIZON_DAYS,
+} from "@/services/recurring-task.service";
+import { parseRecurrencePattern } from "@/lib/recurrence";
 
 export class TaskService {
   private taskRepo = new TaskRepository();
+  private recurringTaskService = new RecurringTaskService();
   private assignmentRepo = new TaskAssignmentRepository();
   private membershipRepo = new MembershipRepository();
   private settingsRepo = new SettingsRepository();
@@ -42,6 +48,17 @@ export class TaskService {
       const end = new Date(input.scheduledEnd);
       if (end <= start) {
         throw new Error("End time must be after start time");
+      }
+    }
+
+    // A recurring series needs a schedule (it defines the time-of-day and
+    // duration every occurrence inherits) and a pattern we can actually read.
+    if (input.isRecurring) {
+      if (!input.scheduledStart || !input.scheduledEnd) {
+        throw new Error("A recurring task must have a start and end time");
+      }
+      if (!parseRecurrencePattern(input.recurringPattern ?? null)) {
+        throw new Error("Invalid recurrence pattern");
       }
     }
 
@@ -68,7 +85,51 @@ export class TaskService {
       details: { title: task.title, department: task.departmentId },
     });
 
+    // Materialise the series' upcoming occurrences straight away, so a new
+    // recurring task immediately shows its future shifts. Awaited (not
+    // fire-and-forget) so the caller's task list reflects them on refetch.
+    if (task.isRecurring) {
+      try {
+        await this.recurringTaskService.generateForOrganization(
+          orgId,
+          DEFAULT_HORIZON_DAYS,
+          userId
+        );
+      } catch (error) {
+        // The series exists — a failed expansion can be retried by the
+        // scheduled run, so never fail the create.
+        console.error("[Recurring Generation Error]", error);
+      }
+    }
+
+    // In "auto" allocation mode the system fills the task itself (US-65).
+    await this.autoAllocateIfEnabled(task.id, orgId, userId);
+
     return task;
+  }
+
+  /**
+   * Fills a task with best-fit staff when the org runs in "auto" allocation
+   * mode. Never fails the create — an unfilled task is still a valid task, and
+   * a manager can assign (or re-run auto-assign) manually.
+   */
+  private async autoAllocateIfEnabled(
+    taskId: string,
+    orgId: string,
+    userId: string
+  ) {
+    try {
+      const settings = await this.settingsRepo.getOrCreate(orgId);
+      if (settings.allocationMode !== "auto") return;
+
+      // Imported lazily: AllocationService holds a TaskService, so making it a
+      // field here would make the two constructors recurse forever.
+      const { AllocationService } = await import("@/services/allocation.service");
+      await new AllocationService().autoAllocate(taskId, orgId, userId);
+    } catch (error) {
+      // "No eligible staff found" is a normal outcome, not a failure.
+      console.error("[Auto-Allocate Error]", error);
+    }
   }
 
   async getByOrganization(

@@ -247,8 +247,12 @@ model Task {
   priority          String    @default("medium")
   scheduledStart    DateTime?
   scheduledEnd      DateTime?
+  // A recurring task is the FIRST occurrence of a series and holds the pattern
+  // (JSON — see lib/recurrence.ts). Later occurrences are ordinary tasks with
+  // parentTaskId pointing back here, so they behave like any other task.
   isRecurring       Boolean   @default(false)
   recurringPattern  String?
+  parentTaskId      String?
   createdById       String
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -258,10 +262,13 @@ model Task {
   createdBy    User             @relation(fields: [createdById], references: [id])
   assignments  TaskAssignment[]
   eligibilityOverrides EligibilityOverride[]
+  parentTask        Task?  @relation("TaskRecurrence", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  recurringInstances Task[] @relation("TaskRecurrence")
 
   @@index([organizationId])
   @@index([departmentId])
   @@index([status])
+  @@index([parentTaskId])
 }
 
 model TaskAssignment {

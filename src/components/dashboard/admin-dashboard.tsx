@@ -3,9 +3,10 @@
  *
  * Client component for the Company Admin dashboard view.
  * Fetches all data from GET /api/organizations/[orgId]/dashboard
- * and renders five sections:
+ * and renders six sections:
  * 1. Needs attention (alerts with action buttons)
  * 2. Key metrics (pipeline, completion rate, hours)
+ * 2b. Summaries (PRD 3.15): tasks by status, 7-day coverage, certifications
  * 3. Tomorrow's schedule + Completions chart
  * 4. Staff utilization + Department workload + Rejection trends
  * 5. AI recommendations (placeholder — separate endpoint)
@@ -91,6 +92,32 @@ interface RejectionTrendItem {
   reasons: { reason: string; count: number }[];
 }
 
+/** Tasks by TASK status — distinct from the assignment pipeline above. */
+interface TaskSummary {
+  total: number;
+  open: number;
+  in_progress: number;
+  completed: number;
+  cancelled: number;
+}
+
+interface CertificationSummary {
+  total: number;
+  verified: number;
+  pending: number;
+  rejected: number;
+  expiringSoon: number;
+  expired: number;
+}
+
+interface CoverageSummary {
+  upcomingTasks: number;
+  fullyStaffed: number;
+  understaffed: number;
+  unassigned: number;
+  coveragePercent: number;
+}
+
 interface DashboardData {
   role: string;
   needsAttention: NeedsAttentionItem[] | null;
@@ -100,6 +127,9 @@ interface DashboardData {
   staffUtilization: StaffUtilizationItem[] | null;
   departmentWorkload: DepartmentWorkloadItem[] | null;
   rejectionTrends: RejectionTrendItem[] | null;
+  taskSummary: TaskSummary | null;
+  certificationSummary: CertificationSummary | null;
+  coverageSummary: CoverageSummary | null;
 }
 
 interface AIRecommendation {
@@ -264,6 +294,22 @@ export default function AdminDashboard({ orgId, orgName }: AdminDashboardProps) 
 
       {/* ---- Section 2: Key Metrics ---- */}
       {data.keyMetrics && <MetricsCards metrics={data.keyMetrics} />}
+
+      {/* ---- Section 2b: Summaries (tasks, coverage, certifications) ---- */}
+      {(data.taskSummary || data.coverageSummary || data.certificationSummary) && (
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          {data.taskSummary && <TaskSummaryCard summary={data.taskSummary} />}
+          {data.coverageSummary && (
+            <CoverageSummaryCard summary={data.coverageSummary} />
+          )}
+          {data.certificationSummary && (
+            <CertificationSummaryCard
+              summary={data.certificationSummary}
+              orgId={orgId}
+            />
+          )}
+        </div>
+      )}
 
       {/* ---- Section 3: Tomorrow + Completions ---- */}
       <div className="mb-6 grid gap-4 md:grid-cols-2">
@@ -444,6 +490,136 @@ function MetricsCards({ metrics }: { metrics: KeyMetrics }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/** One label/value row inside a summary card. */
+function SummaryRow({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: "danger" | "warning" | "good" | "muted";
+}) {
+  const toneClass =
+    tone === "danger"
+      ? "text-red-600 dark:text-red-400"
+      : tone === "warning"
+        ? "text-amber-600 dark:text-amber-400"
+        : tone === "good"
+          ? "text-green-600 dark:text-green-400"
+          : tone === "muted"
+            ? "text-muted-foreground"
+            : "";
+
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-medium tabular-nums ${toneClass}`}>{value}</span>
+    </div>
+  );
+}
+
+/** Task summary — counts by task status (PRD 3.15) */
+function TaskSummaryCard({ summary }: { summary: TaskSummary }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Task summary</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-2xl font-semibold">{summary.total}</p>
+        <p className="mb-3 text-xs text-muted-foreground">tasks in total</p>
+        <SummaryRow label="Open" value={summary.open} />
+        <SummaryRow label="In progress" value={summary.in_progress} />
+        <SummaryRow label="Completed" value={summary.completed} tone="good" />
+        <SummaryRow label="Cancelled" value={summary.cancelled} tone="muted" />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Task coverage across the next 7 days (PRD 3.15) */
+function CoverageSummaryCard({ summary }: { summary: CoverageSummary }) {
+  const pct = summary.coveragePercent;
+  const barColor =
+    pct >= 90 ? "bg-green-500" : pct >= 70 ? "bg-amber-500" : "bg-red-500";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Task coverage (next 7d)</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-2xl font-semibold">{pct}%</p>
+        <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className={`h-full rounded-full transition-all ${barColor}`}
+            style={{ width: `${Math.min(pct, 100)}%` }}
+          />
+        </div>
+        <SummaryRow label="Fully staffed" value={summary.fullyStaffed} tone="good" />
+        <SummaryRow label="Understaffed" value={summary.understaffed} tone="warning" />
+        <SummaryRow label="Unassigned" value={summary.unassigned} tone="danger" />
+        <SummaryRow
+          label="Upcoming tasks"
+          value={summary.upcomingTasks}
+          tone="muted"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Certification summary — verification backlog and expiry health (PRD 3.15) */
+function CertificationSummaryCard({
+  summary,
+  orgId,
+}: {
+  summary: CertificationSummary;
+  orgId: string;
+}) {
+  const needsAction = summary.pending + summary.expiringSoon + summary.expired;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Certifications</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-2xl font-semibold">{summary.verified}</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          verified of {summary.total}
+        </p>
+        <SummaryRow
+          label="Awaiting verification"
+          value={summary.pending}
+          tone={summary.pending > 0 ? "warning" : undefined}
+        />
+        <SummaryRow
+          label="Expiring in 30d"
+          value={summary.expiringSoon}
+          tone={summary.expiringSoon > 0 ? "warning" : undefined}
+        />
+        <SummaryRow
+          label="Expired"
+          value={summary.expired}
+          tone={summary.expired > 0 ? "danger" : undefined}
+        />
+        <SummaryRow label="Rejected" value={summary.rejected} tone="muted" />
+
+        {needsAction > 0 && (
+          <Link
+            href={`/org/${orgId}/certifications`}
+            className="mt-2 inline-block text-xs text-primary hover:underline"
+          >
+            Review certifications →
+          </Link>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

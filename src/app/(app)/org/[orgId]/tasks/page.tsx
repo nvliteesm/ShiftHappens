@@ -19,6 +19,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  parseRecurrencePattern,
+  describeRecurrence,
+  type RecurrenceFreq,
+} from "@/lib/recurrence";
+
+const WEEKDAYS = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" },
+];
+
+/** Readable summary of a stored recurrence pattern, or null if unreadable. */
+function describeRecurrenceOf(raw: string | null): string | null {
+  const pattern = parseRecurrencePattern(raw);
+  return pattern ? describeRecurrence(pattern) : null;
+}
 
 interface Task {
   id: string;
@@ -29,6 +50,10 @@ interface Task {
   requiredHeadcount: number;
   scheduledStart: string | null;
   scheduledEnd: string | null;
+  isRecurring: boolean;
+  recurringPattern: string | null;
+  /** Set on tasks generated from a recurring series. */
+  parentTaskId: string | null;
   department: { id: string; name: string } | null;
   createdBy: { id: string; name: string | null };
   assignments: {
@@ -60,10 +85,17 @@ export default function TasksPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  // Recurrence controls on the create form ("" = does not repeat)
+  const [repeatFreq, setRepeatFreq] = useState<"" | RecurrenceFreq>("");
+  const [repeatInterval, setRepeatInterval] = useState(1);
+  const [repeatDays, setRepeatDays] = useState<number[]>([]);
+  const [repeatUntil, setRepeatUntil] = useState("");
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   // membershipId → reason, when a manager overrides an ineligible staff member
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
+  // Shown inside the assign panel — the page-level banner is off-screen there.
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -77,11 +109,15 @@ export default function TasksPage() {
   const [loadingEligibility, setLoadingEligibility] = useState(false);
   const [naturalInput, setNaturalInput] = useState("");
   const [parsing, setParsing] = useState(false);
+  // "manual" | "suggested" | "auto" — auto-assign is only offered in "auto" mode
+  const [allocationMode, setAllocationMode] = useState<string>("manual");
+  const [autoAssigningId, setAutoAssigningId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks();
     fetchDepartments();
     fetchMembers();
+    fetchSettings();
   }, [orgId]);
 
   useEffect(() => {
@@ -110,6 +146,44 @@ export default function TasksPage() {
       const data = await res.json();
       setDepartments(data);
     } catch {}
+  }
+
+  async function fetchSettings() {
+    try {
+      const res = await fetch(`/api/organizations/${orgId}/settings`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setAllocationMode(data.allocationMode ?? "manual");
+    } catch {}
+  }
+
+  /** Lets the system pick and assign the best-fit staff for a task (US-65). */
+  async function onAutoAssign(taskId: string) {
+    setError(null);
+    setSuccess(null);
+    setAutoAssigningId(taskId);
+
+    try {
+      const res = await fetch(
+        `/api/organizations/${orgId}/tasks/${taskId}/auto-allocate`,
+        { method: "POST" }
+      );
+
+      if (!res.ok) {
+        setError(await readError(res, "Auto-assign failed"));
+        return;
+      }
+
+      const assignments = await res.json().catch(() => []);
+      setSuccess(
+        `Auto-assigned ${Array.isArray(assignments) ? assignments.length : ""} staff`.trim()
+      );
+      fetchTasks();
+    } catch {
+      setError("Something went wrong");
+    } finally {
+      setAutoAssigningId(null);
+    }
   }
 
   async function fetchMembers() {
@@ -242,6 +316,27 @@ export default function TasksPage() {
     if (start) taskData.scheduledStart = new Date(start).toISOString();
     if (end) taskData.scheduledEnd = new Date(end).toISOString();
 
+    // Recurrence — the schedule defines the time-of-day every occurrence inherits,
+    // so a repeating task must have one.
+    if (repeatFreq) {
+      if (!start || !end) {
+        setError("A repeating task needs a start and end time");
+        return;
+      }
+
+      const pattern: Record<string, unknown> = {
+        freq: repeatFreq,
+        interval: repeatInterval || 1,
+      };
+      if (repeatFreq === "weekly" && repeatDays.length > 0) {
+        pattern.days = [...repeatDays].sort((a, b) => a - b);
+      }
+      if (repeatUntil) pattern.until = repeatUntil;
+
+      taskData.isRecurring = true;
+      taskData.recurringPattern = JSON.stringify(pattern);
+    }
+
     try {
       const res = await fetch(`/api/organizations/${orgId}/tasks`, {
         method: "POST",
@@ -257,17 +352,37 @@ export default function TasksPage() {
       }
 
       setShowCreate(false);
-      setSuccess("Task created successfully");
+      setSuccess(
+        repeatFreq
+          ? "Recurring task created — upcoming occurrences generated"
+          : "Task created successfully"
+      );
       (event.target as HTMLFormElement).reset();
+      setRepeatFreq("");
+      setRepeatInterval(1);
+      setRepeatDays([]);
+      setRepeatUntil("");
       fetchTasks();
     } catch {
       setError("Something went wrong");
     }
   }
 
+  /**
+   * Pulls an error message out of a failed response. A failing response is not
+   * guaranteed to carry a JSON body (a routing 404 has none), so parsing must
+   * never throw — otherwise the real reason is swallowed.
+   */
+  async function readError(res: Response, fallback: string): Promise<string> {
+    const body = await res.json().catch(() => null);
+    return body?.error || `${fallback} (HTTP ${res.status})`;
+  }
+
   async function onAssignStaff(taskId: string) {
+    setAssignError(null);
+
     if (selectedMembers.length === 0) {
-      setError("Select at least one member");
+      setAssignError("Select at least one member");
       return;
     }
     setError(null);
@@ -278,7 +393,7 @@ export default function TasksPage() {
       return elig && !elig.eligible && !overrideReasons[id]?.trim();
     });
     if (missingReason) {
-      setError("Provide an override reason for each flagged staff member");
+      setAssignError("Provide an override reason for each flagged staff member");
       return;
     }
 
@@ -301,8 +416,7 @@ export default function TasksPage() {
             }
           );
           if (!ovRes.ok) {
-            const r = await ovRes.json();
-            setError(r.error || "Failed to record override");
+            setAssignError(await readError(ovRes, "Failed to record override"));
             return;
           }
         }
@@ -317,20 +431,21 @@ export default function TasksPage() {
         }
       );
 
-      const result = await res.json();
-
       if (!res.ok) {
-        setError(result.error || "Failed to assign staff");
+        setAssignError(await readError(res, "Failed to assign staff"));
         return;
       }
 
       setAssigningTaskId(null);
       setSelectedMembers([]);
       setOverrideReasons({});
+      setAssignError(null);
       setSuccess("Staff assigned successfully");
       fetchTasks();
-    } catch {
-      setError("Something went wrong");
+    } catch (err) {
+      setAssignError(
+        err instanceof Error ? err.message : "Something went wrong"
+      );
     }
   }
 
@@ -648,6 +763,110 @@ export default function TasksPage() {
                   />
                 </div>
               </div>
+
+              {/* ─── Recurrence ─────────────────────────────────── */}
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-2">
+                  <Label htmlFor="repeatFreq">Repeats</Label>
+                  <select
+                    id="repeatFreq"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={repeatFreq}
+                    onChange={(e) =>
+                      setRepeatFreq(e.target.value as "" | RecurrenceFreq)
+                    }
+                  >
+                    <option value="">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                {repeatFreq && (
+                  <>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">Every</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={repeatInterval}
+                        onChange={(e) =>
+                          setRepeatInterval(Number(e.target.value) || 1)
+                        }
+                        className="h-8 w-20"
+                      />
+                      <span className="text-muted-foreground">
+                        {repeatFreq === "daily"
+                          ? repeatInterval > 1 ? "days" : "day"
+                          : repeatFreq === "weekly"
+                            ? repeatInterval > 1 ? "weeks" : "week"
+                            : repeatInterval > 1 ? "months" : "month"}
+                      </span>
+                    </div>
+
+                    {repeatFreq === "weekly" && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">
+                          On these days (defaults to the start day)
+                        </Label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {WEEKDAYS.map((d) => {
+                            const on = repeatDays.includes(d.value);
+                            return (
+                              <button
+                                key={d.value}
+                                type="button"
+                                onClick={() =>
+                                  setRepeatDays((prev) =>
+                                    prev.includes(d.value)
+                                      ? prev.filter((x) => x !== d.value)
+                                      : [...prev, d.value]
+                                  )
+                                }
+                                className={`rounded-md border px-2.5 py-1 text-xs transition-colors ${
+                                  on
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "hover:bg-muted"
+                                }`}
+                              >
+                                {d.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {repeatFreq === "monthly" && (
+                      <p className="text-xs text-muted-foreground">
+                        Repeats on the same day of the month as the start date.
+                        Months without that day are skipped.
+                      </p>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="repeatUntil" className="text-xs text-muted-foreground">
+                        Until (optional)
+                      </Label>
+                      <Input
+                        id="repeatUntil"
+                        type="date"
+                        value={repeatUntil}
+                        onChange={(e) => setRepeatUntil(e.target.value)}
+                        className="h-8"
+                      />
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Occurrences are created about 2 weeks ahead and topped up
+                      over time, so a long series won&apos;t flood your task list.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <Button type="submit">Create Task</Button>
             </CardContent>
           </form>
@@ -672,6 +891,21 @@ export default function TasksPage() {
                       <span className={`rounded-full px-2 py-0.5 text-xs ${priorityColor(task.priority)}`}>
                         {task.priority}
                       </span>
+                      {task.isRecurring && (
+                        <span
+                          className="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                          title={
+                            describeRecurrenceOf(task.recurringPattern) ?? undefined
+                          }
+                        >
+                          ↻ {describeRecurrenceOf(task.recurringPattern) ?? "repeats"}
+                        </span>
+                      )}
+                      {task.parentTaskId && (
+                        <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs text-violet-600 dark:bg-violet-950/50 dark:text-violet-400">
+                          ↻ from series
+                        </span>
+                      )}
                     </CardTitle>
                     <CardDescription>
                       {task.department?.name || "No department"}
@@ -702,6 +936,8 @@ export default function TasksPage() {
                           const newId = assigningTaskId === task.id ? null : task.id;
                           setAssigningTaskId(newId);
                           setSelectedMembers([]);
+                          setOverrideReasons({});
+                          setAssignError(null);
                           setSuggestions([]);
                           setShowSuggestions(false);
                           if (newId) fetchEligibility(newId);
@@ -710,6 +946,24 @@ export default function TasksPage() {
                         Assign
                       </Button>
                     )}
+
+                    {/* Auto-assign — only offered when the org runs in "auto"
+                        allocation mode and the task still needs staff (US-65). */}
+                    {allocationMode === "auto" &&
+                      task.status === "open" &&
+                      task.assignments.length < task.requiredHeadcount && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onAutoAssign(task.id)}
+                          disabled={autoAssigningId === task.id}
+                        >
+                          {autoAssigningId === task.id
+                            ? "Assigning..."
+                            : "⚡ Auto-assign"}
+                        </Button>
+                      )}
+
                     <select
                       className="rounded-md border px-2 py-1 text-sm"
                       value={task.status}
@@ -1018,6 +1272,11 @@ export default function TasksPage() {
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                  {assignError && (
+                    <div className="mb-3 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
+                      {assignError}
                     </div>
                   )}
                   <Button

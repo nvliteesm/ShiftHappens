@@ -26,6 +26,7 @@ export class TaskRepository {
     scheduledEnd?: Date;
     isRecurring?: boolean;
     recurringPattern?: string;
+    parentTaskId?: string;
     createdById: string;
   }) {
     return prisma.task.create({
@@ -40,6 +41,7 @@ export class TaskRepository {
         scheduledEnd: data.scheduledEnd,
         isRecurring: data.isRecurring ?? false,
         recurringPattern: data.recurringPattern,
+        parentTaskId: data.parentTaskId,
         createdById: data.createdById,
       },
       include: {
@@ -48,6 +50,39 @@ export class TaskRepository {
         createdBy: { select: { id: true, name: true } },
       },
     });
+  }
+
+  /**
+   * Finds the series templates in an org: recurring tasks that are themselves
+   * the first occurrence (no parent), still active, and actually schedulable.
+   * These are the tasks the generator expands into future instances.
+   */
+  async findRecurringTemplates(organizationId: string) {
+    return prisma.task.findMany({
+      where: {
+        organizationId,
+        isRecurring: true,
+        parentTaskId: null,
+        status: { notIn: ["cancelled", "completed"] },
+        recurringPattern: { not: null },
+        scheduledStart: { not: null },
+        scheduledEnd: { not: null },
+      },
+    });
+  }
+
+  /**
+   * Start times of every instance already generated for a series.
+   * Used to make generation idempotent — re-running never duplicates.
+   */
+  async findInstanceStarts(parentTaskId: string): Promise<Date[]> {
+    const rows = await prisma.task.findMany({
+      where: { parentTaskId },
+      select: { scheduledStart: true },
+    });
+    return rows
+      .map((r) => r.scheduledStart)
+      .filter((d): d is Date => d !== null);
   }
 
   /** Finds a task by ID with assignments and related data */

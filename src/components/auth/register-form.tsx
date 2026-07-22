@@ -24,12 +24,12 @@ import {
 
 export function RegisterForm() {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
+    setErrors([]);
     setLoading(true);
 
     const formData = new FormData(event.currentTarget);
@@ -47,16 +47,30 @@ export function RegisterForm() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json();
+      // A failing response isn't guaranteed to carry a JSON body.
+      const result = await response.json().catch(() => null);
 
       if (!response.ok) {
-        setError(result.error || "Registration failed");
+        // Zod returns per-field messages — surface them, otherwise the user
+        // just sees "Validation failed" and has no idea what to change.
+        const fieldErrors = result?.details?.fieldErrors as
+          | Record<string, string[]>
+          | undefined;
+        const messages = fieldErrors
+          ? Object.values(fieldErrors).flat().filter(Boolean)
+          : [];
+
+        setErrors(
+          messages.length > 0
+            ? messages
+            : [result?.error || `Registration failed (HTTP ${response.status})`]
+        );
         return;
       }
 
       router.push("/verify-email?registered=true");
     } catch {
-      setError("Something went wrong. Please try again.");
+      setErrors(["Something went wrong. Please try again."]);
     } finally {
       setLoading(false);
     }
@@ -72,9 +86,17 @@ export function RegisterForm() {
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
-          {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {error}
+          {errors.length > 0 && (
+            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950 dark:text-red-300">
+              {errors.length === 1 ? (
+                errors[0]
+              ) : (
+                <ul className="list-disc space-y-1 pl-4">
+                  {errors.map((message, i) => (
+                    <li key={i}>{message}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           <div className="space-y-2">
@@ -88,6 +110,10 @@ export function RegisterForm() {
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <Input id="password" name="password" type="password" required />
+            <p className="text-xs text-muted-foreground">
+              At least 8 characters, including an uppercase letter, a lowercase
+              letter, a number, and a special character.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm Password</Label>

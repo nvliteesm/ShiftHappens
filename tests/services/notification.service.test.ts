@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { NotificationService, NOTIFICATION_TYPES } from "@/services/notification.service";
 import { UserRepository } from "@/repositories/user.repository";
+import { OrganizationRepository } from "@/repositories/organization.repository";
+import { prisma } from "@/lib/prisma";
 import { cleanDatabase } from "../helpers/cleanup";
 
 const notificationService = new NotificationService();
@@ -201,6 +203,172 @@ describe("NotificationService", () => {
       expect(NOTIFICATION_TYPES.CERT_VERIFIED).toBe("cert_verified");
       expect(NOTIFICATION_TYPES.CERT_REJECTED).toBe("cert_rejected");
       expect(NOTIFICATION_TYPES.ORG_SUSPENDED).toBe("org_suspended");
+    });
+  });
+});
+
+// ─── Preference-gated delivery (Feature: Notifications & Hour Alerts) ───────
+describe("NotificationService — preference gating", () => {
+  const orgRepo = new OrganizationRepository();
+  let prefUserId: string;
+  let prefOrgId: string;
+
+  /** Set the org's notificationPreferences JSON. */
+  async function setPreferences(prefs: Record<string, boolean>) {
+    await prisma.companySettings.update({
+      where: { organizationId: prefOrgId },
+      data: { notificationPreferences: JSON.stringify(prefs) },
+    });
+  }
+
+  beforeEach(async () => {
+    await cleanDatabase();
+
+    const user = await userRepo.create({
+      name: "Admin",
+      email: "admin@pref.com",
+      hashedPassword: "hash",
+    });
+    prefUserId = user.id;
+
+    const org = await orgRepo.create(
+      { name: "Pref Org", slug: "pref-org" },
+      user.id
+    );
+    prefOrgId = org.id;
+    // Ensure a CompanySettings row exists to update.
+    await prisma.companySettings.upsert({
+      where: { organizationId: prefOrgId },
+      create: { organizationId: prefOrgId },
+      update: {},
+    });
+  });
+
+  describe("isTypeEnabled", () => {
+    it("defaults to true when no preferences are set", async () => {
+      expect(
+        await notificationService.isTypeEnabled(
+          prefOrgId,
+          NOTIFICATION_TYPES.TASK_ASSIGNED
+        )
+      ).toBe(true);
+    });
+
+    it("returns true for a non-gated type regardless of preferences", async () => {
+      await setPreferences({ taskAssignment: false });
+      // ASSIGNMENT_ACCEPTED is not in the preference map — always sent.
+      expect(
+        await notificationService.isTypeEnabled(
+          prefOrgId,
+          NOTIFICATION_TYPES.ASSIGNMENT_ACCEPTED
+        )
+      ).toBe(true);
+    });
+
+    it("returns false when the mapped preference is disabled", async () => {
+      await setPreferences({ taskAssignment: false });
+      expect(
+        await notificationService.isTypeEnabled(
+          prefOrgId,
+          NOTIFICATION_TYPES.TASK_ASSIGNED
+        )
+      ).toBe(false);
+    });
+
+    it("gates HOUR_LIMIT_WARNING on the hourLimitWarning preference", async () => {
+      await setPreferences({ hourLimitWarning: false });
+      expect(
+        await notificationService.isTypeEnabled(
+          prefOrgId,
+          NOTIFICATION_TYPES.HOUR_LIMIT_WARNING
+        )
+      ).toBe(false);
+    });
+  });
+
+  describe("notifyIfEnabled", () => {
+    it("delivers when the type is enabled", async () => {
+      await notificationService.notifyIfEnabled(
+        prefOrgId,
+        prefUserId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "Assigned",
+        "You have a new task"
+      );
+      const notifs = await notificationService.getNotifications(prefUserId);
+      expect(notifs).toHaveLength(1);
+    });
+
+    it("suppresses delivery when the type is disabled", async () => {
+      await setPreferences({ taskAssignment: false });
+      await notificationService.notifyIfEnabled(
+        prefOrgId,
+        prefUserId,
+        NOTIFICATION_TYPES.TASK_ASSIGNED,
+        "Assigned",
+        "You have a new task"
+      );
+      const notifs = await notificationService.getNotifications(prefUserId);
+      expect(notifs).toHaveLength(0);
+    });
+  });
+
+  describe("notifyManyIfEnabled", () => {
+    it("does nothing for an empty recipient list", async () => {
+      await expect(
+        notificationService.notifyManyIfEnabled(
+          prefOrgId,
+          [],
+          NOTIFICATION_TYPES.TASK_RESCHEDULED,
+          "Rescheduled",
+          "Time changed"
+        )
+      ).resolves.not.toThrow();
+    });
+
+    it("suppresses delivery to all when the type is disabled", async () => {
+      await setPreferences({ taskAssignment: false });
+      await notificationService.notifyManyIfEnabled(
+        prefOrgId,
+        [prefUserId],
+        NOTIFICATION_TYPES.TASK_RESCHEDULED,
+        "Rescheduled",
+        "Time changed"
+      );
+      const notifs = await notificationService.getNotifications(prefUserId);
+      expect(notifs).toHaveLength(0);
+    });
+  });
+
+  describe("wasNotifiedSince", () => {
+    it("is true after a matching notification and false otherwise", async () => {
+      const since = new Date(Date.now() - 60_000);
+      expect(
+        await notificationService.wasNotifiedSince(
+          prefUserId,
+          NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
+          since,
+          "task-1"
+        )
+      ).toBe(false);
+
+      await notificationService.notify(
+        prefUserId,
+        NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
+        "Hours",
+        "Approaching limit",
+        "task",
+        "task-1"
+      );
+
+      expect(
+        await notificationService.wasNotifiedSince(
+          prefUserId,
+          NOTIFICATION_TYPES.HOUR_LIMIT_WARNING,
+          since,
+          "task-1"
+        )
+      ).toBe(true);
     });
   });
 });

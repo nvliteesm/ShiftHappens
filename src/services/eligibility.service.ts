@@ -309,34 +309,11 @@ export class EligibilityService {
       return { eligible: true };
     }
 
-    // Filter rules to only those applicable to this member
-    const applicableRules = rules.filter((rule) => {
-      const ruleRoleId = rule.roleId || null;
-      const ruleDeptId = (rule as Record<string, unknown>).departmentId as string | null;
-
-      // Global rule — no targeting
-      if (!ruleRoleId && !ruleDeptId) return true;
-
-      // Department-targeted rule
-      if (ruleDeptId && !ruleRoleId) {
-        return memberDepartmentIds.includes(ruleDeptId);
-      }
-
-      // Role-targeted rule
-      if (ruleRoleId && !ruleDeptId) {
-        return memberCustomRoleId === ruleRoleId;
-      }
-
-      // Both targeted — must match both
-      if (ruleRoleId && ruleDeptId) {
-        return (
-          memberDepartmentIds.includes(ruleDeptId) &&
-          memberCustomRoleId === ruleRoleId
-        );
-      }
-
-      return false;
-    });
+    const applicableRules = this.filterApplicableRules(
+      rules,
+      memberDepartmentIds,
+      memberCustomRoleId
+    );
 
     for (const rule of applicableRules) {
       let violated = false;
@@ -390,8 +367,48 @@ export class EligibilityService {
     return { eligible: true };
   }
 
+  /**
+   * Filters work rules to those targeting a given member.
+   * - Global rule (no role, no department) → applies to everyone
+   * - Department rule → member must be in that department
+   * - Role rule → member must hold that custom role
+   * - Both → member must match both
+   * Shared with the hour-limit alerting so both use identical targeting.
+   */
+  filterApplicableRules<T extends { roleId?: string | null }>(
+    rules: T[],
+    memberDepartmentIds: string[],
+    memberCustomRoleId: string | null
+  ): T[] {
+    return rules.filter((rule) => {
+      const ruleRoleId = rule.roleId || null;
+      const ruleDeptId = (rule as Record<string, unknown>).departmentId as
+        | string
+        | null;
+
+      if (!ruleRoleId && !ruleDeptId) return true;
+
+      if (ruleDeptId && !ruleRoleId) {
+        return memberDepartmentIds.includes(ruleDeptId);
+      }
+
+      if (ruleRoleId && !ruleDeptId) {
+        return memberCustomRoleId === ruleRoleId;
+      }
+
+      if (ruleRoleId && ruleDeptId) {
+        return (
+          memberDepartmentIds.includes(ruleDeptId) &&
+          memberCustomRoleId === ruleRoleId
+        );
+      }
+
+      return false;
+    });
+  }
+
   /** Gets total hours worked in the last 24 hours */
-  private async getHoursInLast24h(membershipId: string): Promise<number> {
+  async getHoursInLast24h(membershipId: string): Promise<number> {
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const assignments = await prisma.taskAssignment.findMany({
@@ -407,7 +424,7 @@ export class EligibilityService {
   }
 
   /** Gets total hours worked on a specific calendar date */
-  private async getHoursOnDate(
+  async getHoursOnDate(
     membershipId: string,
     date: Date
   ): Promise<number> {
@@ -429,7 +446,7 @@ export class EligibilityService {
   }
 
   /** Gets total hours worked in the calendar week containing the date */
-  private async getHoursInWeek(
+  async getHoursInWeek(
     membershipId: string,
     date: Date
   ): Promise<number> {

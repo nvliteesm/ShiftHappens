@@ -31,7 +31,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const role = await roleService.getById(roleId);
+    const role = await roleService.getById(roleId, orgId);
     if (!role) {
       return NextResponse.json({ error: "Role not found" }, { status: 404 });
     }

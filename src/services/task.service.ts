@@ -139,13 +139,21 @@ export class TaskService {
     return this.taskRepo.findByOrganizationId(organizationId, filters);
   }
 
-  async getById(taskId: string) {
-    return this.taskRepo.findById(taskId);
+  /**
+   * Fetches a task, but only if it belongs to the given organization.
+   * Returns null for a missing task OR one owned by another tenant —
+   * callers must never be able to read across org boundaries by ID.
+   */
+  async getById(taskId: string, orgId: string) {
+    const task = await this.taskRepo.findById(taskId);
+    if (!task || task.organizationId !== orgId) return null;
+    return task;
   }
 
   async update(taskId: string, orgId: string, input: UpdateTaskInput) {
     const task = await this.taskRepo.findById(taskId);
-    if (!task) throw new Error("Task not found");
+    // Treat a cross-tenant task as non-existent — no read or write across orgs.
+    if (!task || task.organizationId !== orgId) throw new Error("Task not found");
 
     const startProvided = "scheduledStart" in input;
     const endProvided = "scheduledEnd" in input;
@@ -279,7 +287,7 @@ export class TaskService {
 
   async delete(taskId: string, orgId: string) {
     const task = await this.taskRepo.findById(taskId);
-    if (!task) throw new Error("Task not found");
+    if (!task || task.organizationId !== orgId) throw new Error("Task not found");
 
     // Capture who to tell before the task (and its assignments) are gone.
     const affectedUserIds = this.stillAssignedUserIds(task);
@@ -333,7 +341,7 @@ export class TaskService {
     assignedById: string
   ) {
     const task = await this.taskRepo.findById(taskId);
-    if (!task) throw new Error("Task not found");
+    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
     const currentCount = await this.assignmentRepo.countActiveByTaskId(taskId);
     if (currentCount + membershipIds.length > task.requiredHeadcount) {
@@ -344,7 +352,12 @@ export class TaskService {
 
     for (const membId of membershipIds) {
       const membership = await this.membershipRepo.findById(membId);
-      if (membership?.role === "company_admin") {
+      // A membership from another tenant must never be assignable to this
+      // org's task — validate ownership before any role check.
+      if (!membership || membership.organizationId !== organizationId) {
+        throw new Error("Staff member does not belong to this organization");
+      }
+      if (membership.role === "company_admin") {
         throw new Error("Company Admins cannot be assigned to tasks");
       }
     }
@@ -419,9 +432,13 @@ export class TaskService {
    * If understaffed, runs smart-swap: finds eligible replacements
    * and notifies the admin with the top recommendation.
    */
-  async cancelAssignment(assignmentId: string, userId?: string) {
+  async cancelAssignment(assignmentId: string, orgId: string, userId?: string) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
-    if (!assignment) throw new Error("Assignment not found");
+    // Scope by the assignment's task org — a manager in one tenant cannot
+    // cancel assignments belonging to another tenant.
+    if (!assignment || assignment.task.organizationId !== orgId) {
+      throw new Error("Assignment not found");
+    }
 
     if (assignment.status === "completed") {
       throw new Error("Cannot cancel a completed assignment");

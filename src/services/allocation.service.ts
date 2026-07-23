@@ -70,7 +70,7 @@ export class AllocationService {
     organizationId: string
   ): Promise<RankedStaff[]> {
     const task = await this.taskRepo.findById(taskId);
-    if (!task) throw new Error("Task not found");
+    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
     const eligibility = await this.eligibilityService.checkEligibilityForTask(
       taskId,
@@ -130,7 +130,7 @@ export class AllocationService {
     assignedById: string
   ) {
     const task = await this.taskRepo.findById(taskId);
-    if (!task) throw new Error("Task not found");
+    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
     if (settings.allocationMode !== "auto") {

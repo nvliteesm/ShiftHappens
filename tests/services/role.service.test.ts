@@ -161,7 +161,7 @@ describe("RoleService", () => {
         orgId
       );
 
-      const found = await roleService.getById(created.id);
+      const found = await roleService.getById(created.id, orgId);
       expect(found).not.toBeNull();
       expect(found!.rolePermissions).toHaveLength(3);
     });
@@ -231,7 +231,7 @@ describe("RoleService", () => {
 
       await roleService.delete(role.id, orgId);
 
-      const found = await roleService.getById(role.id);
+      const found = await roleService.getById(role.id, orgId);
       expect(found).toBeNull();
     });
 

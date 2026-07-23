@@ -228,7 +228,7 @@ describe("TaskAssignmentService", () => {
       const assignment = await createAssignment("accepted");
       await assignmentService.requestWithdrawal(assignment.id, membershipId, "reason");
 
-      await assignmentService.resolveWithdrawal(assignment.id, "approve", userId);
+      await assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId);
 
       const found = await prisma.taskAssignment.findUnique({
         where: { id: assignment.id },
@@ -243,7 +243,8 @@ describe("TaskAssignmentService", () => {
       const result = await assignmentService.resolveWithdrawal(
         assignment.id,
         "deny",
-        userId
+        userId,
+        orgId
       );
       expect(result.status).toBe("accepted");
     });
@@ -252,7 +253,7 @@ describe("TaskAssignmentService", () => {
       const assignment = await createAssignment("accepted");
 
       await expect(
-        assignmentService.resolveWithdrawal(assignment.id, "approve", userId)
+        assignmentService.resolveWithdrawal(assignment.id, "approve", userId, orgId)
       ).rejects.toThrow("No pending withdrawal request");
     });
   });

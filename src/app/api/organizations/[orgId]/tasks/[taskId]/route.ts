@@ -30,7 +30,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const task = await taskService.getById(taskId);
+    const task = await taskService.getById(taskId, orgId);
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }

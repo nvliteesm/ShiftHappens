@@ -274,10 +274,14 @@ export class TaskAssignmentService {
   async resolveWithdrawal(
     assignmentId: string,
     decision: "approve" | "deny",
-    actorUserId: string
+    actorUserId: string,
+    organizationId: string
   ) {
     const assignment = await this.assignmentRepo.findById(assignmentId);
-    if (!assignment) throw new Error("Assignment not found");
+    // A manager may only resolve withdrawals for their own org's assignments.
+    if (!assignment || assignment.task.organizationId !== organizationId) {
+      throw new Error("Assignment not found");
+    }
 
     if (assignment.status !== "withdrawal_requested") {
       throw new Error("No pending withdrawal request for this assignment");

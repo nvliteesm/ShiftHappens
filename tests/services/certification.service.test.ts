@@ -71,7 +71,7 @@ describe("CertificationService", () => {
         issuedDate: "2026-01-15T00:00:00.000Z",
       });
 
-      const verified = await certService.updateStatus(cert.id, "verified", adminUserId);
+      const verified = await certService.updateStatus(cert.id, orgId, "verified", adminUserId);
       expect(verified.status).toBe("verified");
       expect(verified.verifiedById).toBe(adminUserId);
     });
@@ -81,16 +81,16 @@ describe("CertificationService", () => {
         name: "Food Safety",
         issuedDate: "2026-01-15T00:00:00.000Z",
       });
-      await certService.updateStatus(cert.id, "verified", adminUserId);
+      await certService.updateStatus(cert.id, orgId, "verified", adminUserId);
 
       await expect(
-        certService.updateStatus(cert.id, "rejected", adminUserId)
+        certService.updateStatus(cert.id, orgId, "rejected", adminUserId)
       ).rejects.toThrow("Can only verify or reject pending");
     });
 
     it("throws if cert not found", async () => {
       await expect(
-        certService.updateStatus("nonexistent", "verified", adminUserId)
+        certService.updateStatus("nonexistent", orgId, "verified", adminUserId)
       ).rejects.toThrow("Certification not found");
     });
   });
@@ -118,15 +118,15 @@ describe("CertificationService", () => {
         issuedDate: "2026-01-15T00:00:00.000Z",
       });
 
-      await certService.delete(cert.id);
+      await certService.delete(cert.id, orgId);
 
-      const found = await certService.getById(cert.id);
+      const found = await certService.getById(cert.id, orgId);
       expect(found).toBeNull();
     });
 
     it("throws if not found", async () => {
       await expect(
-        certService.delete("nonexistent")
+        certService.delete("nonexistent", orgId)
       ).rejects.toThrow("Certification not found");
     });
   });
@@ -138,7 +138,7 @@ describe("CertificationService", () => {
         issuedDate: "2026-01-15T00:00:00.000Z",
         expiryDate: "2028-01-15T00:00:00.000Z",
       });
-      await certService.updateStatus(cert1.id, "verified", adminUserId);
+      await certService.updateStatus(cert1.id, orgId, "verified", adminUserId);
 
       // Pending cert - should not be included
       await certService.create(membershipId, {

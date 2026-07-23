@@ -58,9 +58,14 @@ export class RoleService {
     return this.roleRepo.findByOrganizationId(organizationId);
   }
 
-  /** Retrieves a single role by ID with its permissions */
-  async getById(roleId: string) {
-    return this.roleRepo.findById(roleId);
+  /**
+   * Retrieves a single role by ID, scoped to an organization.
+   * Returns null for a missing role OR one owned by another tenant.
+   */
+  async getById(roleId: string, organizationId: string) {
+    const role = await this.roleRepo.findById(roleId);
+    if (!role || role.organizationId !== organizationId) return null;
+    return role;
   }
 
   /**
@@ -69,7 +74,7 @@ export class RoleService {
    */
   async update(roleId: string, organizationId: string, input: UpdateRoleInput, userId?: string) {
     const role = await this.roleRepo.findById(roleId);
-    if (!role) {
+    if (!role || role.organizationId !== organizationId) {
       throw new Error("Role not found");
     }
 
@@ -101,7 +106,7 @@ export class RoleService {
    */
   async delete(roleId: string, organizationId: string, userId?: string) {
     const role = await this.roleRepo.findById(roleId);
-    if (!role) {
+    if (!role || role.organizationId !== organizationId) {
       throw new Error("Role not found");
     }
 

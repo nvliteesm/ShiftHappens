@@ -757,7 +757,8 @@ describe("EligibilityService", () => {
         staffMembershipId,
         adminUserId,
         "Staff has equivalent experience",
-        "certification"
+        "certification",
+        orgId
       );
 
       expect(override.ruleOverridden).toBe("certification");
@@ -787,7 +788,8 @@ describe("EligibilityService", () => {
         staffMembershipId,
         adminUserId,
         "Manager approved",
-        "availability"
+        "availability",
+        orgId
       );
 
       results = await eligibilityService.checkEligibilityForTask(
@@ -831,7 +833,8 @@ describe("EligibilityService", () => {
         staffMembershipId,
         adminUserId,
         "Short-staffed — manager approved",
-        "all"
+        "all",
+        orgId
       );
 
       const results = await eligibilityService.checkEligibilityForTask(

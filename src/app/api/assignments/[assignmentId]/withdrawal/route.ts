@@ -51,7 +51,8 @@ export async function POST(
     const updated = await assignmentService.resolveWithdrawal(
       assignmentId,
       parsed.data.decision,
-      user.id
+      user.id,
+      orgId
     );
     return NextResponse.json(updated);
   } catch (error) {

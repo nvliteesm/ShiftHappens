@@ -28,7 +28,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await taskService.cancelAssignment(assignmentId, user.id);
+    await taskService.cancelAssignment(assignmentId, orgId, user.id);
     return NextResponse.json({ message: "Assignment cancelled" });
   } catch (error) {
     if (error instanceof Error) {

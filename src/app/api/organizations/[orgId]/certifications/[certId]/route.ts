@@ -30,7 +30,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const cert = await certService.getById(certId);
+    const cert = await certService.getById(certId, orgId);
     if (!cert) {
       return NextResponse.json({ error: "Certification not found" }, { status: 404 });
     }
@@ -66,7 +66,7 @@ export async function PATCH(
       );
     }
 
-    const updated = await certService.updateStatus(certId, parsed.data.status, user.id);
+    const updated = await certService.updateStatus(certId, orgId, parsed.data.status, user.id);
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error) {
@@ -96,7 +96,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await certService.delete(certId);
+    await certService.delete(certId, orgId);
     return NextResponse.json({ message: "Certification deleted" });
   } catch (error) {
     if (error instanceof Error && error.message === "Certification not found") {

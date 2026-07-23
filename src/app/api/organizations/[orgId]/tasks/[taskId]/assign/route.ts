@@ -56,6 +56,9 @@ export async function POST(
       if (error.message === "Task not found") {
         return NextResponse.json({ error: error.message }, { status: 404 });
       }
+      if (error.message.includes("does not belong to this organization")) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

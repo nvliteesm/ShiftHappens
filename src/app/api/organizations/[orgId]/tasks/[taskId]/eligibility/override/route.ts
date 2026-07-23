@@ -44,11 +44,20 @@ export async function POST(
       parsed.data.membershipId,
       user.id,
       parsed.data.reason,
-      parsed.data.ruleOverridden
+      parsed.data.ruleOverridden,
+      orgId
     );
 
     return NextResponse.json(override, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "Task not found") {
+        return NextResponse.json({ error: error.message }, { status: 404 });
+      }
+      if (error.message.includes("does not belong to this organization")) {
+        return NextResponse.json({ error: error.message }, { status: 403 });
+      }
+    }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

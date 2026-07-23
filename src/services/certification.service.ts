@@ -27,9 +27,15 @@ export class CertificationService {
     });
   }
 
-  /** Gets a certification by ID */
-  async getById(certId: string) {
-    return this.certRepo.findById(certId);
+  /**
+   * Gets a certification by ID, scoped to an organization.
+   * A cert belongs to the org of the member who owns it. Returns null for a
+   * missing cert OR one owned by a member of another tenant.
+   */
+  async getById(certId: string, organizationId: string) {
+    const cert = await this.certRepo.findById(certId);
+    if (!cert || cert.membership.organizationId !== organizationId) return null;
+    return cert;
   }
 
   /** Gets all certifications for a member */
@@ -42,10 +48,12 @@ export class CertificationService {
     return this.certRepo.findByOrganizationId(organizationId, status);
   }
 
-  /** Verifies or rejects a certification */
-  async updateStatus(certId: string, status: string, verifiedById: string) {
+  /** Verifies or rejects a certification, scoped to an organization. */
+  async updateStatus(certId: string, organizationId: string, status: string, verifiedById: string) {
     const cert = await this.certRepo.findById(certId);
-    if (!cert) throw new Error("Certification not found");
+    if (!cert || cert.membership.organizationId !== organizationId) {
+      throw new Error("Certification not found");
+    }
 
     if (cert.status !== "pending") {
       throw new Error("Can only verify or reject pending certifications");
@@ -54,10 +62,12 @@ export class CertificationService {
     return this.certRepo.updateStatus(certId, status, verifiedById);
   }
 
-  /** Deletes a certification */
-  async delete(certId: string) {
+  /** Deletes a certification, scoped to an organization. */
+  async delete(certId: string, organizationId: string) {
     const cert = await this.certRepo.findById(certId);
-    if (!cert) throw new Error("Certification not found");
+    if (!cert || cert.membership.organizationId !== organizationId) {
+      throw new Error("Certification not found");
+    }
 
     return this.certRepo.delete(certId);
   }

@@ -135,7 +135,7 @@ describe("TaskService", () => {
   describe("getById", () => {
     it("returns a task", async () => {
       const created = await taskService.create({ title: "Test" }, orgId, userId);
-      const found = await taskService.getById(created.id);
+      const found = await taskService.getById(created.id, orgId);
       expect(found).not.toBeNull();
       expect(found!.title).toBe("Test");
     });
@@ -266,7 +266,7 @@ describe("TaskService", () => {
       const task = await taskService.create({ title: "Delete me" }, orgId, userId);
       await taskService.delete(task.id, orgId);
 
-      const found = await taskService.getById(task.id);
+      const found = await taskService.getById(task.id, orgId);
       expect(found).toBeNull();
     });
 
@@ -429,7 +429,7 @@ describe("TaskService", () => {
       const task = await taskService.create({ title: "Test" }, orgId, userId);
       const assignments = await taskService.assignStaff(task.id, orgId, [staffMembershipId], userId);
 
-      await taskService.cancelAssignment(assignments[0].id);
+      await taskService.cancelAssignment(assignments[0].id, orgId);
 
       const staffTasks = await taskService.getStaffTasks(staffMembershipId);
       expect(staffTasks).toHaveLength(0);
@@ -445,7 +445,7 @@ describe("TaskService", () => {
       });
 
       await expect(
-        taskService.cancelAssignment(assignments[0].id)
+        taskService.cancelAssignment(assignments[0].id, orgId)
       ).rejects.toThrow("Cannot cancel a completed assignment");
     });
   });
@@ -492,7 +492,7 @@ describe("TaskService", () => {
         userId
       );
 
-      await taskService.cancelAssignment(assignment.id, userId);
+      await taskService.cancelAssignment(assignment.id, orgId, userId);
 
       const notes = await waitForNotifications(
         staffUserId,

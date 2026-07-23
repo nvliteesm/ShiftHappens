@@ -77,7 +77,8 @@ export class EligibilityService {
     organizationId: string
   ): Promise<StaffEligibility[]> {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) throw new Error("Task not found");
+    // Cross-tenant tasks are invisible — never evaluate another org's task.
+    if (!task || task.organizationId !== organizationId) throw new Error("Task not found");
 
     const settings = await this.settingsRepo.getOrCreate(organizationId);
 
@@ -495,8 +496,24 @@ export class EligibilityService {
     membershipId: string,
     overriddenById: string,
     reason: string,
-    ruleOverridden: string
+    ruleOverridden: string,
+    organizationId: string
   ) {
+    // Scope both the task and the member to the caller's org before writing —
+    // an override must not be created against another tenant's task/member.
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { organizationId: true, title: true },
+    });
+    if (!task || task.organizationId !== organizationId) {
+      throw new Error("Task not found");
+    }
+
+    const membership = await this.membershipRepo.findById(membershipId);
+    if (!membership || membership.organizationId !== organizationId) {
+      throw new Error("Staff member does not belong to this organization");
+    }
+
     const override = await this.overrideRepo.create({
       taskId,
       membershipId,
@@ -506,25 +523,19 @@ export class EligibilityService {
     });
 
     // Audit — records who waived which rule and why.
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      select: { organizationId: true, title: true },
+    void this.auditService.log({
+      organizationId: task.organizationId,
+      userId: overriddenById,
+      action: ACTIONS.ELIGIBILITY_OVERRIDDEN,
+      entityType: "task",
+      entityId: taskId,
+      details: {
+        taskTitle: task.title,
+        membershipId,
+        ruleOverridden,
+        reason,
+      },
     });
-    if (task) {
-      void this.auditService.log({
-        organizationId: task.organizationId,
-        userId: overriddenById,
-        action: ACTIONS.ELIGIBILITY_OVERRIDDEN,
-        entityType: "task",
-        entityId: taskId,
-        details: {
-          taskTitle: task.title,
-          membershipId,
-          ruleOverridden,
-          reason,
-        },
-      });
-    }
 
     return override;
   }

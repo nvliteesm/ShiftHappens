@@ -103,7 +103,7 @@ describe("Smart-Swap", () => {
     });
 
     // Cancel one — task becomes understaffed (1/2)
-    await taskService.cancelAssignment(a1.id, adminUserId);
+    await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
     // Wait for fire-and-forget notification
     await new Promise((r) => setTimeout(r, 500));
@@ -141,7 +141,7 @@ describe("Smart-Swap", () => {
     });
 
     // Cancel one — still has 1/1, not understaffed
-    await taskService.cancelAssignment(a1.id, adminUserId);
+    await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
     await new Promise((r) => setTimeout(r, 500));
 
@@ -170,7 +170,7 @@ describe("Smart-Swap", () => {
       data: { taskId: task.id, membershipId: staffMembershipIds[0], assignedById: adminUserId, status: "pending" },
     });
 
-    await taskService.cancelAssignment(a1.id, adminUserId);
+    await taskService.cancelAssignment(a1.id, orgId, adminUserId);
 
     await new Promise((r) => setTimeout(r, 500));
 
@@ -200,7 +200,7 @@ describe("Smart-Swap", () => {
     });
 
     // Cancellation should always succeed regardless of smart-swap
-    const result = await taskService.cancelAssignment(a1.id, adminUserId);
+    const result = await taskService.cancelAssignment(a1.id, orgId, adminUserId);
     expect(result).toBeDefined();
   });
 });

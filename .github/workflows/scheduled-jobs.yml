@@ -1,0 +1,34 @@
+name: Scheduled Jobs
+
+# Alternative to Vercel Cron for triggering the platform's scheduled jobs
+# (recurring-task generation + hour-limit alert scan). Use this if the app is
+# NOT deployed on Vercel, or if you want scheduling independent of the host.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      e.g. https://your-app.example.com   (no trailing slash)
+#   CRON_SECRET  must match the CRON_SECRET env var on the deployed app
+#
+# GitHub schedules run in UTC and may be delayed under load; the endpoint is
+# idempotent so an occasional missed/duplicate run is harmless.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly, on the hour (UTC)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger /api/cron
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL and CRON_SECRET repository secrets must be set." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --request GET "$APP_URL/api/cron" \
+            --header "Authorization: Bearer $CRON_SECRET"

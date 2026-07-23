@@ -86,6 +86,10 @@ RESEND_FROM_EMAIL="onboarding@resend.dev"
 GROQ_API_KEY="gsk_your_groq_api_key"
 GEMINI_API_KEY="your_gemini_api_key"
 AI_PROVIDER="groq"
+
+# Scheduled jobs (recurring-task generation + hour-limit alerts)
+# Shared secret the cron caller must present as `Authorization: Bearer <value>`.
+CRON_SECRET="generate-a-random-secret-here"
 ```
 
 **`.env.test`** — Used by tests:
@@ -272,6 +276,38 @@ To switch AI providers, set `AI_PROVIDER` in `.env.local`:
 ```env
 AI_PROVIDER="groq"    # default
 AI_PROVIDER="gemini"  # backup
+```
+
+---
+
+## Scheduled Jobs (Cron)
+
+Two background jobs keep the platform current across all active organizations:
+
+- **Recurring-task generation** — materialises upcoming instances of recurring series so future shifts keep appearing.
+- **Hour-limit alert scan** — notifies at-risk staff and their managers as hours approach/exceed a limit.
+
+Both run via a single endpoint, `GET /api/cron`, which fans the work out across every active org. The endpoint is **not** protected by a user session — the caller must present a shared secret:
+
+```
+Authorization: Bearer <CRON_SECRET>
+```
+
+Set `CRON_SECRET` in the environment. If it is unset, the endpoint rejects every request (fail-closed). Both jobs are idempotent and cooldown-guarded, so repeat calls are safe.
+
+### Option A — Vercel Cron (default)
+`vercel.json` schedules the endpoint hourly:
+```json
+{ "crons": [{ "path": "/api/cron", "schedule": "0 * * * *" }] }
+```
+Set `CRON_SECRET` in the Vercel project env — Vercel Cron automatically sends it as the `Authorization: Bearer` header. (Note: the Vercel Hobby tier limits crons to once per day; adjust the schedule accordingly.)
+
+### Option B — GitHub Actions
+`.github/workflows/scheduled-jobs.yml` curls the endpoint on a schedule. Add repository secrets `APP_URL` and `CRON_SECRET`.
+
+### Trigger manually (local/testing)
+```bash
+curl -H "Authorization: Bearer %CRON_SECRET%" http://localhost:3000/api/cron
 ```
 
 ---

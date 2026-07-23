@@ -111,6 +111,24 @@ describe("TaskService", () => {
         )
       ).rejects.toThrow("End time must be after start time");
     });
+
+    it("persists requiredCertifications", async () => {
+      const task = await taskService.create(
+        { title: "Cert task", requiredCertifications: ["Food Safety", "RSA Certification"] },
+        orgId,
+        userId
+      );
+
+      const found = await taskService.getById(task.id, orgId);
+      expect(found!.requiredCertifications).toEqual(["Food Safety", "RSA Certification"]);
+    });
+
+    it("defaults requiredCertifications to an empty array", async () => {
+      const task = await taskService.create({ title: "No cert task" }, orgId, userId);
+
+      const found = await taskService.getById(task.id, orgId);
+      expect(found!.requiredCertifications).toEqual([]);
+    });
   });
 
   describe("getByOrganization", () => {
@@ -258,6 +276,21 @@ describe("TaskService", () => {
       await expect(
         taskService.update("nonexistent", orgId, { title: "X" })
       ).rejects.toThrow("Task not found");
+    });
+
+    it("updates requiredCertifications", async () => {
+      const task = await taskService.create(
+        { title: "Cert task", requiredCertifications: ["Food Safety"] },
+        orgId,
+        userId
+      );
+
+      await taskService.update(task.id, orgId, {
+        requiredCertifications: ["RSA Certification"],
+      });
+
+      const found = await taskService.getById(task.id, orgId);
+      expect(found!.requiredCertifications).toEqual(["RSA Certification"]);
     });
   });
 

@@ -243,6 +243,9 @@ model Task {
   title             String
   description       String?
   requiredHeadcount Int       @default(1)
+  // Names of certifications a staff member must hold (verified + non-expired)
+  // to be eligible for this task. Empty = no certification requirement.
+  requiredCertifications String[] @default([])
   status            String    @default("open")
   priority          String    @default("medium")
   scheduledStart    DateTime?

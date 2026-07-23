@@ -41,6 +41,7 @@ interface StaffEligibility {
     availability: EligibilityCheck;
     scheduling: EligibilityCheck;
     workRules: EligibilityCheck;
+    certifications: EligibilityCheck;
   };
   overrides: string[];
 }
@@ -65,6 +66,7 @@ export class EligibilityService {
     availability: "availability",
     scheduling: "scheduling",
     workRules: "work_rules",
+    certifications: "certification",
   } as const;
 
   /**
@@ -169,11 +171,22 @@ export class EligibilityService {
         )
       );
 
+      // 5. Certifications — member must hold every cert the task requires
+      //    (verified + non-expired). No requirement → always passes.
+      const certCheck = applyOverride(
+        this.OVERRIDE_KEYS.certifications,
+        await this.checkCertifications(
+          member.id,
+          (task as { requiredCertifications?: string[] }).requiredCertifications ?? []
+        )
+      );
+
       const eligible =
         hoursCheck.eligible &&
         availCheck.eligible &&
         schedulingCheck.eligible &&
-        workRulesCheck.eligible;
+        workRulesCheck.eligible &&
+        certCheck.eligible;
 
       results.push({
         membershipId: member.id,
@@ -186,6 +199,7 @@ export class EligibilityService {
           availability: availCheck,
           scheduling: schedulingCheck,
           workRules: workRulesCheck,
+          certifications: certCheck,
         },
         overrides: Array.from(memberOverrides),
       });
@@ -247,6 +261,39 @@ export class EligibilityService {
       eligible: true,
       reason: `${totalHours.toFixed(1)}h worked of ${maxHours}h limit`,
     };
+  }
+
+  /**
+   * Checks whether a member holds every certification a task requires.
+   * Only verified, non-expired certifications count (delegated to the repo).
+   * Matching is case-insensitive and trims surrounding whitespace so
+   * "  food safety " matches a stored "Food Safety".
+   */
+  async checkCertifications(
+    membershipId: string,
+    required: string[]
+  ): Promise<EligibilityCheck> {
+    if (!required || required.length === 0) {
+      return { eligible: true };
+    }
+
+    const validCerts = await this.certRepo.getValidCertifications(membershipId);
+    const held = new Set(validCerts.map((c) => c.name.trim().toLowerCase()));
+
+    const missing = required.filter(
+      (name) => !held.has(name.trim().toLowerCase())
+    );
+
+    if (missing.length > 0) {
+      return {
+        eligible: false,
+        reason: `Missing required certification(s): ${missing
+          .map((m) => m.trim())
+          .join(", ")}`,
+      };
+    }
+
+    return { eligible: true, reason: "Has all required certifications" };
   }
 
   /**

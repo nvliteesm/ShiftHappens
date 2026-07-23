@@ -21,6 +21,7 @@ export class TaskRepository {
     organizationId: string;
     departmentId?: string;
     requiredHeadcount?: number;
+    requiredCertifications?: string[];
     priority?: string;
     scheduledStart?: Date;
     scheduledEnd?: Date;
@@ -36,6 +37,7 @@ export class TaskRepository {
         organizationId: data.organizationId,
         departmentId: data.departmentId,
         requiredHeadcount: data.requiredHeadcount ?? 1,
+        requiredCertifications: data.requiredCertifications ?? [],
         priority: data.priority ?? "medium",
         scheduledStart: data.scheduledStart,
         scheduledEnd: data.scheduledEnd,
@@ -162,6 +164,7 @@ export class TaskRepository {
       description?: string;
       departmentId?: string;
       requiredHeadcount?: number;
+      requiredCertifications?: string[];
       priority?: string;
       status?: string;
       scheduledStart?: Date | null;

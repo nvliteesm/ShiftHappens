@@ -41,6 +41,15 @@ function describeRecurrenceOf(raw: string | null): string | null {
   return pattern ? describeRecurrence(pattern) : null;
 }
 
+/** Splits a comma-separated certifications input into a clean list of names. */
+function parseCertList(raw: string | null): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
 interface Task {
   id: string;
   title: string;
@@ -48,6 +57,7 @@ interface Task {
   status: string;
   priority: string;
   requiredHeadcount: number;
+  requiredCertifications: string[];
   scheduledStart: string | null;
   scheduledEnd: string | null;
   isRecurring: boolean;
@@ -311,6 +321,10 @@ export default function TasksPage() {
       requiredHeadcount: Number(formData.get("requiredHeadcount")) || 1,
     };
 
+    // Required certifications — comma-separated names, e.g. "Food Safety, RSA".
+    const createCerts = parseCertList(formData.get("requiredCertifications") as string);
+    if (createCerts.length > 0) taskData.requiredCertifications = createCerts;
+
     const start = formData.get("scheduledStart") as string;
     const end = formData.get("scheduledEnd") as string;
     if (start) taskData.scheduledStart = new Date(start).toISOString();
@@ -507,6 +521,8 @@ export default function TasksPage() {
       departmentId: formData.get("editDepartment") || undefined,
       priority: formData.get("editPriority"),
       requiredHeadcount: Number(formData.get("editHeadcount")) || 1,
+      // Always send the parsed list so clearing the field removes requirements.
+      requiredCertifications: parseCertList(formData.get("editRequiredCertifications") as string),
     };
 
     const start = formData.get("editStart") as string;
@@ -745,6 +761,18 @@ export default function TasksPage() {
                   defaultValue={1}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="requiredCertifications">Required certifications</Label>
+                <Input
+                  id="requiredCertifications"
+                  name="requiredCertifications"
+                  placeholder="e.g. Food Safety, RSA Certification"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Comma-separated. Staff must hold each as a verified, non-expired
+                  certification to be eligible. Leave blank for none.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="scheduledStart">Start time</Label>
@@ -918,6 +946,19 @@ export default function TasksPage() {
                           {task.scheduledEnd && ` — ${new Date(task.scheduledEnd).toLocaleString()}`}
                         </>
                       )}
+                      {task.requiredCertifications?.length > 0 && (
+                        <span className="mt-1 flex flex-wrap items-center gap-1">
+                          <span className="text-xs text-muted-foreground">Requires:</span>
+                          {task.requiredCertifications.map((cert) => (
+                            <span
+                              key={cert}
+                              className="rounded-full bg-purple-100 px-2 py-0.5 text-xs text-purple-700 dark:bg-purple-950 dark:text-purple-300"
+                            >
+                              {cert}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
@@ -1039,6 +1080,17 @@ export default function TasksPage() {
                         max={50}
                         defaultValue={task.requiredHeadcount}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Required certifications</Label>
+                      <Input
+                        name="editRequiredCertifications"
+                        defaultValue={(task.requiredCertifications || []).join(", ")}
+                        placeholder="e.g. Food Safety, RSA Certification"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Comma-separated. Clear the field to remove all requirements.
+                      </p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
@@ -1201,7 +1253,7 @@ export default function TasksPage() {
                         // All failing dimensions, not just the first.
                         const warnings: string[] =
                           elig && !elig.eligible
-                            ? (["availability", "scheduling", "workRules", "hoursLimit"] as const)
+                            ? (["availability", "scheduling", "workRules", "hoursLimit", "certifications"] as const)
                                 .filter((k) => elig.checks[k] && !elig.checks[k].eligible)
                                 .map((k) => elig.checks[k].reason || k)
                             : [];

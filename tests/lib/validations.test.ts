@@ -365,6 +365,22 @@ describe("createTaskSchema", () => {
     const result = createTaskSchema.safeParse({ title: "Task", requiredHeadcount: 51 });
     expect(result.success).toBe(false);
   });
+
+  it("accepts a list of required certifications", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Task",
+      requiredCertifications: ["Food Safety", "RSA Certification"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty certification names", () => {
+    const result = createTaskSchema.safeParse({
+      title: "Task",
+      requiredCertifications: [""],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("updateTaskSchema", () => {

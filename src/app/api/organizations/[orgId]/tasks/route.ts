@@ -12,6 +12,7 @@ import { createTaskSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse, checkOrgSuspended } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
 import { SubscriptionLimitError, FeatureNotAvailableError } from "@/lib/subscription-tiers";
+import { departmentScopeFor, isDepartmentInScope } from "@/lib/department-scope";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -40,6 +41,15 @@ export async function POST(
       return NextResponse.json(
         { error: "Validation failed", details: parsed.error.flatten() },
         { status: 400 }
+      );
+    }
+
+    // A scoped manager may only create tasks within their own department(s).
+    const scope = departmentScopeFor(membership);
+    if (scope !== null && !isDepartmentInScope(parsed.data.departmentId, scope)) {
+      return NextResponse.json(
+        { error: "You can only create tasks in your assigned department(s)." },
+        { status: 403 }
       );
     }
 
@@ -78,7 +88,12 @@ export async function GET(
       priority: searchParams.get("priority") || undefined,
     };
 
-    const tasks = await taskService.getByOrganization(orgId, filters);
+    // Managers see only their department(s); company admins see everything.
+    const tasks = await taskService.getByOrganization(
+      orgId,
+      filters,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(tasks);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

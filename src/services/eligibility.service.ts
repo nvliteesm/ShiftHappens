@@ -87,11 +87,20 @@ export class EligibilityService {
     // Get all active work rules for this org
     const allWorkRules = await this.workRuleRepo.findApplicableRules(organizationId);
 
-    // Get all active non-admin members
+    // Get all active non-admin members. When the task belongs to a department,
+    // only staff in that department are candidates (PRD §7.4 department scope);
+    // department-less tasks consider everyone.
     const allMembers = await this.membershipRepo.findByOrgId(organizationId);
-    const eligibleMembers = allMembers.filter(
+    let eligibleMembers = allMembers.filter(
       (m) => m.status === "active" && m.role !== "company_admin"
     );
+    if (task.departmentId) {
+      eligibleMembers = eligibleMembers.filter((m) =>
+        (m.departmentMemberships ?? []).some(
+          (dm: { department: { id: string } }) => dm.department.id === task.departmentId
+        )
+      );
+    }
 
     // Load all overrides for this task once, grouped by member.
     const overridesByMember = await this.getOverrideMap(taskId);

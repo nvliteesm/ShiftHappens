@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { TaskService } from "@/services/task.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { isAssignmentTaskInScope } from "@/lib/department-scope";
 
 const taskService = new TaskService();
 const membershipRepo = new MembershipRepository();
@@ -26,6 +27,11 @@ export async function DELETE(
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Managers can only cancel assignments on tasks in their department scope.
+    if (!(await isAssignmentTaskInScope(assignmentId, membership))) {
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
     }
 
     await taskService.cancelAssignment(assignmentId, orgId, user.id);

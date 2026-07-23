@@ -8,9 +8,23 @@
  */
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
 const appName = "Smart Task Allocation";
+
+/**
+ * Lazily constructs the Resend client on first send, memoized thereafter.
+ * Constructing at module load crashes when RESEND_API_KEY is absent (e.g. in
+ * tests that merely import a service depending on this one), so we defer it
+ * until an email is actually sent — where the call is already inside a
+ * try/catch and a misconfiguration is logged rather than crashing imports.
+ */
+let resendClient: Resend | null = null;
+function getResend(): Resend {
+  if (!resendClient) {
+    resendClient = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resendClient;
+}
 
 /** Wraps email content in a branded template shell */
 function emailTemplate(content: string): string {
@@ -109,7 +123,7 @@ export class EmailService {
     `;
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: fromEmail,
         to: email,
         subject: `Verify your email — ${appName}`,
@@ -138,7 +152,7 @@ export class EmailService {
     `;
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: fromEmail,
         to: email,
         subject: `Reset your password — ${appName}`,
@@ -172,7 +186,7 @@ export class EmailService {
     `;
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: fromEmail,
         to: email,
         subject: `You're invited to join ${organizationName} — ${appName}`,

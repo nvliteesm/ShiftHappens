@@ -13,6 +13,7 @@ import { TaskAssignmentService } from "@/services/task-assignment.service";
 import { withdrawalDecisionSchema } from "@/lib/validations";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { isAssignmentTaskInScope } from "@/lib/department-scope";
 
 const assignmentService = new TaskAssignmentService();
 const membershipRepo = new MembershipRepository();
@@ -37,6 +38,11 @@ export async function POST(
     const membership = await membershipRepo.findByUserAndOrg(user.id, orgId);
     if (!membership || !["company_admin", "manager"].includes(membership.role)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // Managers can only resolve withdrawals for tasks in their department scope.
+    if (!(await isAssignmentTaskInScope(assignmentId, membership))) {
+      return NextResponse.json({ error: "Assignment not found" }, { status: 404 });
     }
 
     const body = await request.json();

@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserManagementService } from "@/services/user-management.service";
 import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth-guard";
 import { MembershipRepository } from "@/repositories/membership.repository";
+import { departmentScopeFor } from "@/lib/department-scope";
 
 const userMgmtService = new UserManagementService();
 const membershipRepo = new MembershipRepository();
@@ -29,7 +30,11 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const members = await userMgmtService.getOrgMembers(orgId);
+    // Managers see only members in their department(s); admins see everyone.
+    const members = await userMgmtService.getOrgMembers(
+      orgId,
+      departmentScopeFor(membership)
+    );
     return NextResponse.json(members);
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

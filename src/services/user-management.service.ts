@@ -30,9 +30,21 @@ export class UserManagementService {
   private auditService = new AuditLogService();
   private subscriptionService = new SubscriptionService();
 
-  /** Lists all members of an organization with user details and departments */
-  async getOrgMembers(organizationId: string) {
-    return this.membershipRepo.findByOrgId(organizationId);
+  /**
+   * Lists an org's members, optionally limited to a department scope.
+   * `departmentScope` null/undefined = unrestricted (company admin); an array
+   * limits results to members belonging to those departments (a scoped
+   * manager only manages staff in their own departments).
+   */
+  async getOrgMembers(organizationId: string, departmentScope?: string[] | null) {
+    const members = await this.membershipRepo.findByOrgId(organizationId);
+    if (departmentScope === undefined || departmentScope === null) {
+      return members;
+    }
+    const scope = new Set(departmentScope);
+    return members.filter((m) =>
+      (m.departmentMemberships ?? []).some((dm) => scope.has(dm.department.id))
+    );
   }
 
   /**

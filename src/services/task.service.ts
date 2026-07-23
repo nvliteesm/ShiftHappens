@@ -133,11 +133,23 @@ export class TaskService {
     }
   }
 
+  /**
+   * Lists an org's tasks, optionally limited to a department scope.
+   * `departmentScope` null/undefined = unrestricted (company admin); an array
+   * limits results to those departments (a scoped manager). Tasks with no
+   * department are excluded for scoped callers.
+   */
   async getByOrganization(
     organizationId: string,
-    filters?: { status?: string; departmentId?: string; priority?: string }
+    filters?: { status?: string; departmentId?: string; priority?: string },
+    departmentScope?: string[] | null
   ) {
-    return this.taskRepo.findByOrganizationId(organizationId, filters);
+    const tasks = await this.taskRepo.findByOrganizationId(organizationId, filters);
+    if (departmentScope === undefined || departmentScope === null) {
+      return tasks;
+    }
+    const scope = new Set(departmentScope);
+    return tasks.filter((t) => t.departmentId !== null && scope.has(t.departmentId));
   }
 
   /**

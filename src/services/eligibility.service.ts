@@ -120,7 +120,7 @@ export class EligibilityService {
       // 1. Hours limit
       const hoursCheck = applyOverride(
         this.OVERRIDE_KEYS.hoursLimit,
-        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked)
+        await this.checkHoursLimit(member.id, settings.breakRuleHoursWorked, task.id)
       );
 
       // 2. Availability
@@ -221,45 +221,28 @@ export class EligibilityService {
   }
 
   /**
-   * Checks if a member has exceeded the hours limit.
-   * Looks at hours worked in the last 24 hours based on clock in/out data.
+   * Checks a member against the company break rule (hours in a rolling 24h).
+   * Counts actual clocked time plus any committed shift that started within
+   * the window. `excludeTaskId` drops the task being evaluated so it isn't
+   * counted against itself.
    */
   async checkHoursLimit(
     membershipId: string,
-    maxHours: number
+    maxHours: number,
+    excludeTaskId?: string
   ): Promise<EligibilityCheck> {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    const recentAssignments = await prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: oneDayAgo },
-        clockOutTime: { not: null },
-      },
-    });
-
-    let totalHours = 0;
-    for (const assignment of recentAssignments) {
-      if (assignment.clockInTime && assignment.clockOutTime) {
-        const hours =
-          (assignment.clockOutTime.getTime() -
-            assignment.clockInTime.getTime()) /
-          (1000 * 60 * 60);
-        totalHours += hours;
-      }
-    }
+    const totalHours = await this.getHoursInLast24h(membershipId, excludeTaskId);
 
     if (totalHours >= maxHours) {
       return {
         eligible: false,
-        reason: `Worked ${totalHours.toFixed(1)}h in last 24h (limit: ${maxHours}h)`,
+        reason: `${totalHours.toFixed(1)}h in last 24h (limit: ${maxHours}h)`,
       };
     }
 
     return {
       eligible: true,
-      reason: `${totalHours.toFixed(1)}h worked of ${maxHours}h limit`,
+      reason: `${totalHours.toFixed(1)}h of ${maxHours}h limit`,
     };
   }
 
@@ -349,7 +332,7 @@ export class EligibilityService {
   private async checkWorkRules(
     membershipId: string,
     rules: Awaited<ReturnType<WorkRuleRepository["findApplicableRules"]>>,
-    task: { scheduledStart: Date | null; scheduledEnd: Date | null },
+    task: { id: string; scheduledStart: Date | null; scheduledEnd: Date | null },
     memberDepartmentIds: string[],
     memberCustomRoleId: string | null
   ): Promise<EligibilityCheck> {
@@ -370,24 +353,27 @@ export class EligibilityService {
       switch (rule.type) {
         case "break_interval": {
           if (!rule.hoursThreshold) break;
-          const hours = await this.getHoursInLast24h(membershipId);
+          const hours = await this.getHoursInLast24h(membershipId, task.id);
           if (hours >= rule.hoursThreshold) {
             violated = true;
-            reason = `Worked ${hours.toFixed(1)}h in last 24h (rule "${rule.name}": max ${rule.hoursThreshold}h before break)`;
+            reason = `${hours.toFixed(1)}h in last 24h (rule "${rule.name}": max ${rule.hoursThreshold}h before break)`;
           }
           break;
         }
 
         case "max_hours_daily": {
           if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
+          // Hours already committed that day (clocked + scheduled), excluding
+          // this task so it isn't counted against itself.
           const dailyHours = await this.getHoursOnDate(
             membershipId,
-            task.scheduledStart
+            task.scheduledStart,
+            task.id
           );
           const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
           if (dailyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `${taskDuration.toFixed(1)}h task exceeds ${rule.maxHours}h/day limit`;
+            reason = `Would total ${(dailyHours + taskDuration).toFixed(1)}h that day (rule "${rule.name}": max ${rule.maxHours}h/day)`;
           }
           break;
         }
@@ -396,12 +382,13 @@ export class EligibilityService {
           if (!rule.maxHours || !task.scheduledStart || !task.scheduledEnd) break;
           const weeklyHours = await this.getHoursInWeek(
             membershipId,
-            task.scheduledStart
+            task.scheduledStart,
+            task.id
           );
           const taskDuration = (task.scheduledEnd.getTime() - task.scheduledStart.getTime()) / (1000 * 60 * 60);
           if (weeklyHours + taskDuration > rule.maxHours) {
             violated = true;
-            reason = `${taskDuration.toFixed(1)}h task exceeds ${rule.maxHours}h/week limit`;
+            reason = `Would total ${(weeklyHours + taskDuration).toFixed(1)}h that week (rule "${rule.name}": max ${rule.maxHours}h/week)`;
           }
           break;
         }
@@ -455,48 +442,127 @@ export class EligibilityService {
     });
   }
 
-  /** Gets total hours worked in the last 24 hours */
-  async getHoursInLast24h(membershipId: string): Promise<number> {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  /**
+   * Assignment statuses that represent a real or committed time commitment.
+   * rejected/withdrawn are excluded — they no longer occupy the person's time.
+   */
+  private static readonly COMMITTED_STATUSES = [
+    "pending",
+    "accepted",
+    "withdrawal_requested",
+    "clocked_out",
+    "completed",
+  ];
 
-    const assignments = await prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: oneDayAgo },
-        clockOutTime: { not: null },
-      },
-    });
-
-    return this.sumHours(assignments);
+  /**
+   * The effective time interval an assignment occupies:
+   * - actual clock in/out when both are recorded (hours truly worked)
+   * - otherwise the task's scheduled window (a future/committed shift)
+   * Returns null when neither is known (unscheduled and not yet worked).
+   */
+  private effectiveInterval(a: {
+    clockInTime: Date | null;
+    clockOutTime: Date | null;
+    task: { scheduledStart: Date | null; scheduledEnd: Date | null } | null;
+  }): { start: Date; end: Date } | null {
+    if (a.clockInTime && a.clockOutTime) {
+      return { start: a.clockInTime, end: a.clockOutTime };
+    }
+    if (a.task?.scheduledStart && a.task?.scheduledEnd) {
+      return { start: a.task.scheduledStart, end: a.task.scheduledEnd };
+    }
+    return null;
   }
 
-  /** Gets total hours worked on a specific calendar date */
+  /**
+   * Loads a member's committed/worked assignments with their task schedule,
+   * so hour totals can count BOTH clocked time and future scheduled shifts.
+   * `excludeTaskId` drops the task currently being evaluated to avoid
+   * counting it against itself (e.g. when re-checking after a reschedule).
+   */
+  private async loadCommittedAssignments(
+    membershipId: string,
+    excludeTaskId?: string
+  ) {
+    return prisma.taskAssignment.findMany({
+      where: {
+        membershipId,
+        status: { in: EligibilityService.COMMITTED_STATUSES },
+        ...(excludeTaskId ? { taskId: { not: excludeTaskId } } : {}),
+      },
+      select: {
+        clockInTime: true,
+        clockOutTime: true,
+        task: { select: { scheduledStart: true, scheduledEnd: true } },
+      },
+    });
+  }
+
+  /**
+   * Sums effective assignment hours whose interval STARTS within
+   * [windowStart, windowEnd). A null windowEnd means "no upper bound".
+   */
+  private sumHoursInWindow(
+    assignments: {
+      clockInTime: Date | null;
+      clockOutTime: Date | null;
+      task: { scheduledStart: Date | null; scheduledEnd: Date | null } | null;
+    }[],
+    windowStart: Date,
+    windowEnd: Date | null
+  ): number {
+    let total = 0;
+    for (const a of assignments) {
+      const interval = this.effectiveInterval(a);
+      if (!interval) continue;
+      if (interval.start < windowStart) continue;
+      if (windowEnd && interval.start >= windowEnd) continue;
+      total +=
+        (interval.end.getTime() - interval.start.getTime()) / (1000 * 60 * 60);
+    }
+    return Math.round(total * 10) / 10;
+  }
+
+  /**
+   * Total committed hours in the last 24 hours (rolling). Counts actual
+   * clocked time plus any committed shift that started within the window.
+   */
+  async getHoursInLast24h(
+    membershipId: string,
+    excludeTaskId?: string
+  ): Promise<number> {
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
+    return this.sumHoursInWindow(assignments, oneDayAgo, now);
+  }
+
+  /**
+   * Total committed hours on a calendar date — clocked time AND scheduled
+   * shifts on that day — so daily caps prevent over-scheduling future work.
+   */
   async getHoursOnDate(
     membershipId: string,
-    date: Date
+    date: Date,
+    excludeTaskId?: string
   ): Promise<number> {
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
 
-    const assignments = await prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: dayStart, lt: dayEnd },
-        clockOutTime: { not: null },
-      },
-    });
-
-    return this.sumHours(assignments);
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
+    return this.sumHoursInWindow(assignments, dayStart, dayEnd);
   }
 
-  /** Gets total hours worked in the calendar week containing the date */
+  /**
+   * Total committed hours in the calendar week (Mon–Sun) containing the date —
+   * clocked time AND scheduled shifts — so weekly caps prevent over-scheduling.
+   */
   async getHoursInWeek(
     membershipId: string,
-    date: Date
+    date: Date,
+    excludeTaskId?: string
   ): Promise<number> {
     const weekStart = new Date(date);
     const day = weekStart.getDay();
@@ -507,31 +573,8 @@ export class EligibilityService {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const assignments = await prisma.taskAssignment.findMany({
-      where: {
-        membershipId,
-        status: { in: ["clocked_out", "completed"] },
-        clockInTime: { gte: weekStart, lt: weekEnd },
-        clockOutTime: { not: null },
-      },
-    });
-
-    return this.sumHours(assignments);
-  }
-
-  /** Sums clock-in/out durations to total hours */
-  private sumHours(
-    assignments: { clockInTime: Date | null; clockOutTime: Date | null }[]
-  ): number {
-    let total = 0;
-    for (const a of assignments) {
-      if (a.clockInTime && a.clockOutTime) {
-        total +=
-          (a.clockOutTime.getTime() - a.clockInTime.getTime()) /
-          (1000 * 60 * 60);
-      }
-    }
-    return Math.round(total * 10) / 10;
+    const assignments = await this.loadCommittedAssignments(membershipId, excludeTaskId);
+    return this.sumHoursInWindow(assignments, weekStart, weekEnd);
   }
 
   /**
